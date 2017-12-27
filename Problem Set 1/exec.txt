@@ -1,2 +1,2 @@
- ./HW1 ../cinque_terre_small.jpg 
+ ./HW1 ../cinque_terre_small.jpg out.png ref.png 1 1
 
