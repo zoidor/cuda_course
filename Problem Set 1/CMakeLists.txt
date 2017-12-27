@@ -6,6 +6,8 @@
 ############################################################################
 
 # collect source files
+cmake_minimum_required(VERSION 3.5)
+
 set (CMAKE_CXX_STANDARD 11)
 
 FIND_PACKAGE(CUDA REQUIRED )
