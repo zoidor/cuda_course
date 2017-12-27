@@ -11,7 +11,7 @@ cmake_minimum_required(VERSION 3.5)
 
 set (CMAKE_CXX_STANDARD 11)
 
-FIND_PACKAGE(CUDA REQUIRED )
+find_package(CUDA REQUIRED )
 find_package( OpenCV REQUIRED )
 
 
