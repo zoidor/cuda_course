@@ -34,17 +34,15 @@
 #include <stdio.h>
 #include "utils.h"
 
-__device__ unsigned char pixel_to_gray_scale(const uchar4& px)
-{
-	return (float)(.299f * px.x + .587f * px.y + .114f * px.z);
-}
+
+__device__ float pixel_to_gray_scale(const uchar4& px);
+
 
 __global__
 void rgba_to_greyscale(const uchar4* const rgbaImage,
                        unsigned char* const greyImage,
                        int numRows, int numCols)
 {
-  //TODO
   //Fill in the kernel to convert from color to greyscale
   //the mapping from components of a uchar4 to RGBA is:
   // .x -> R ; .y -> G ; .z -> B ; .w -> A
@@ -65,10 +63,7 @@ void rgba_to_greyscale(const uchar4* const rgbaImage,
 
   const int idx = y * numCols + x;
 
-  unsigned char& dest = greyImage[idx];
-  const uchar4& source = rgbaImage[idx];
-  
-  dest = pixel_to_gray_scale(source);
+  greyImage[idx] = pixel_to_gray_scale(rgbaImage[idx]);
 }
 
 void your_rgba_to_greyscale(const uchar4 * const h_rgbaImage, uchar4 * const d_rgbaImage,
@@ -86,3 +81,9 @@ void your_rgba_to_greyscale(const uchar4 * const h_rgbaImage, uchar4 * const d_r
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
 
 }
+
+__device__ float pixel_to_gray_scale(const uchar4& px)
+{
+	return (float)(.299f * (float)px.x + .587f * (float)px.y + .114f * (float)px.z);
+}
+

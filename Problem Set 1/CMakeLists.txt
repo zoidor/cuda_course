@@ -6,6 +6,8 @@
 ############################################################################
 
 # collect source files
+set (CMAKE_CXX_STANDARD 11)
+
 FIND_PACKAGE(CUDA REQUIRED )
 find_package( OpenCV REQUIRED )
 
