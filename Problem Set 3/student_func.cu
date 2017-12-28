@@ -83,11 +83,12 @@
 #include <vector>
 #include <numeric>
 
-__global__ void print_arr(const float * const arr, const size_t length)
+template<typename T>
+__global__ void print_arr(const T * const arr, const size_t length)
 {
 	for(int i = 0; i < length; ++i)
 	{
-		printf("%f\n", arr[i]);
+		printf("C %i %f\n", i, (double)arr[i]);
 	}
 } 
 
@@ -103,10 +104,18 @@ const size_t num_bins, device_hist_operator op){
 	
 	for(int i = tid; i < num_bins; i += blockDim.x)
 		s_hist[i] = 0;
+  
+	__syncthreads();
 
 	const int position = blockIdx.x * blockDim.x + threadIdx.x;
 	const int bin = op(d_vec[position]);
 	atomicAdd(&s_hist[bin], 1);
+
+	__syncthreads();
+
+	for(int i = tid; i < num_bins; i += blockDim.x)
+		atomicAdd(&d_hist[i], s_hist[i]);
+	
 }
 
 template<typename device_reduce_operator>
@@ -165,6 +174,8 @@ void generate_histogram(const float* const d_vec,
 			const float vec_max,
 			int num_threads)
 {
+
+	checkCudaErrors(cudaMemset(d_hist, 0, sizeof(unsigned int) * num_bins));
 	int numBlocks = (int)ceil(length_vec / (double)num_threads);
 
 	const float range = vec_max - vec_min;
