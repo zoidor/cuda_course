@@ -127,6 +127,8 @@ __global__ void cuda_reduce(const float * vec, const size_t length, float * out,
 	const int tid = threadIdx.x;
 	const int position = blockIdx.x * blockDim.x + threadIdx.x;
 	
+	if(position > length) return;
+
 	//Copy into shared memory
 	s_vect[tid] = vec[position];
 	__syncthreads();	
