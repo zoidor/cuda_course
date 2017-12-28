@@ -83,12 +83,12 @@
 #include <vector>
 #include <numeric>
 
-
-__global__ void cuda_reduce_min(const float * vec, const size_t length, float * out)
+template<typename device_reduce_operator>
+__global__ void cuda_reduce(const float * vec, const size_t length, float * out, device_reduce_operator op)
 {
 	extern __shared__ float s_vect[];
-	int tid = threadIdx.x;
-	int position = blockIdx.x * blockDim.x + threadIdx.x;
+	const int tid = threadIdx.x;
+	const int position = blockIdx.x * blockDim.x + threadIdx.x;
 	
 	//Copy into shared memory
 	s_vect[tid] = vec[position];
@@ -97,7 +97,7 @@ __global__ void cuda_reduce_min(const float * vec, const size_t length, float * 
 	for(int s = blockDim.x / 2; s > 0; s /= 2)
 	{
 		if(tid < s)
-			s_vect[tid] = min(s_vect[tid], s_vect[tid + s]);
+			s_vect[tid] = op(s_vect[tid], s_vect[tid + s]);
 		__syncthreads();	
 	}
 
@@ -107,7 +107,8 @@ __global__ void cuda_reduce_min(const float * vec, const size_t length, float * 
 	}
 }
 
-__global__ void cuda_reduce_min_monothread(float * vec, const size_t length)
+template<typename device_reduce_operator>
+__global__ void cuda_reduce_monothread(float * vec, const size_t length, device_reduce_operator op)
 {	
 	float to_ret = vec[0];
 	for(int i = 1; i < length; ++i)
@@ -115,7 +116,8 @@ __global__ void cuda_reduce_min_monothread(float * vec, const size_t length)
 	vec[0] = to_ret;
 }
 
-float reduce(const float * d_vec, int length, int num_threads_per_block)
+template<typename device_reduce_operator>
+float reduce(const float * d_vec, int length, int num_threads_per_block, device_reduce_operator op)
 {	
 	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
 	if(num_blocks == 0) num_blocks = 1;
@@ -123,10 +125,11 @@ float reduce(const float * d_vec, int length, int num_threads_per_block)
 
 	float * d_out = NULL;
 	checkCudaErrors(cudaMalloc(&d_out, sizeof(float) * num_blocks));
-	cuda_reduce_min<<<num_blocks, num_threads_per_block, sizeof(float)*num_threads_per_block>>>(d_vec, length, d_out);
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(float)*num_threads_per_block>>>(d_vec, length, d_out, op);
 	checkCudaErrors(cudaGetLastError());		
 	
-	cuda_reduce_min_monothread<<<1,1>>>(d_out, num_blocks);
+	//using CUDA so that the device operator can be always used.
+	cuda_reduce_monothread<<<1,1>>>(d_out, num_blocks, op);
 
 	checkCudaErrors(cudaGetLastError());
 	
@@ -157,7 +160,8 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
    const int K = 32;
-   min_logLum = reduce(d_logLuminance, numRows * numCols, K); 
-  // max_logLum = reduce(d_logLuminance, numRows * numCols, device_max, K); 
+
+   min_logLum = reduce(d_logLuminance, numRows * numCols, K, []__device__(float a, float b){return min(a,b);}); 
+   max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__device__(float a, float b){return max(a,b);}); 
    printf("%f %f", min_logLum, max_logLum);
 }
