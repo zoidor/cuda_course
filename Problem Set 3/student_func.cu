@@ -168,9 +168,11 @@ void generate_histogram(const float* const d_vec,
 	int numBlocks = (int)ceil(length_vec / (double)num_threads);
 
 	const float range = vec_max - vec_min;
-	auto op = [num_bins, range, vec_min] __device__(float el) -> int{return (int)((el - vec_min) / range * num_bins);};
+	auto op = [num_bins, range, vec_min] __device__(float el) -> int{return min((size_t)((el - vec_min) / range * num_bins), num_bins - 1);};
 	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * num_bins>>> (d_vec, length_vec, 
 										d_hist, num_bins, op); 
+
+	checkCudaErrors(cudaGetLastError());		
 }
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
@@ -196,7 +198,4 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
    max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return max(a,b);}); 
 
   generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K);
-
-	
- 
 }
