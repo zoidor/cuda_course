@@ -83,6 +83,32 @@
 #include <vector>
 #include <numeric>
 
+__global__ void print_arr(const float * const arr, const size_t length)
+{
+	for(int i = 0; i < length; ++i)
+	{
+		printf("%f\n", arr[i]);
+	}
+} 
+
+
+//https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
+template<typename device_hist_operator>
+__global__ void cuda_hist(const float * d_vec, const size_t length_vec, unsigned int * d_hist, 
+const size_t num_bins, device_hist_operator op){
+
+	extern __shared__ unsigned int s_hist[];
+
+	const int tid = threadIdx.x;
+	
+	for(int i = tid; i < num_bins; i += blockDim.x)
+		s_hist[i] = 0;
+
+	const int position = blockIdx.x * blockDim.x + threadIdx.x;
+	const int bin = op(d_vec[position]);
+	atomicAdd(&s_hist[bin], 1);
+}
+
 template<typename device_reduce_operator>
 __global__ void cuda_reduce(const float * vec, const size_t length, float * out, device_reduce_operator op)
 {
@@ -107,14 +133,6 @@ __global__ void cuda_reduce(const float * vec, const size_t length, float * out,
 	}
 }
 
-template<typename device_reduce_operator>
-__global__ void cuda_reduce_monothread(float * vec, const size_t length, device_reduce_operator op)
-{	
-	float to_ret = vec[0];
-	for(int i = 1; i < length; ++i)
-		to_ret = min(vec[i], to_ret);
-	vec[0] = to_ret;
-}
 
 template<typename device_reduce_operator>
 float reduce(const float * d_vec, int length, int num_threads_per_block, device_reduce_operator op)
@@ -125,20 +143,34 @@ float reduce(const float * d_vec, int length, int num_threads_per_block, device_
 
 	float * d_out = NULL;
 	checkCudaErrors(cudaMalloc(&d_out, sizeof(float) * num_blocks));
-	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(float)*num_threads_per_block>>>(d_vec, length, d_out, op);
-	checkCudaErrors(cudaGetLastError());		
-	
-	//using CUDA so that the device operator can be always used.
-	cuda_reduce_monothread<<<1,1>>>(d_out, num_blocks, op);
 
-	checkCudaErrors(cudaGetLastError());
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(float) * num_threads_per_block>>>(d_vec, length, d_out, op);
+	checkCudaErrors(cudaGetLastError());		
+
 	
-	float h_out; 
-	checkCudaErrors(cudaMemcpy(&h_out, d_out, sizeof(float), cudaMemcpyDeviceToHost));
+	std::vector<float> h_out(num_blocks); 
+	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(float), cudaMemcpyDeviceToHost));
 
 	checkCudaErrors(cudaFree(d_out));
 	
-	return h_out;
+	return std::accumulate(h_out.cbegin() + 1, h_out.cend(), h_out[0], op);
+}
+
+
+void generate_histogram(const float* const d_vec,
+			const size_t length_vec,
+			unsigned int* const d_hist,
+			const size_t num_bins,
+			const float vec_min,
+			const float vec_max,
+			int num_threads)
+{
+	int numBlocks = (int)ceil(length_vec / (double)num_threads);
+
+	const float range = vec_max - vec_min;
+	auto op = [num_bins, range, vec_min] __device__(float el) -> int{return (int)((el - vec_min) / range * num_bins);};
+	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * num_bins>>> (d_vec, length_vec, 
+										d_hist, num_bins, op); 
 }
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
@@ -160,8 +192,11 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
    const int K = 32;
+   min_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return min(a,b);}); 
+   max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return max(a,b);}); 
 
-   min_logLum = reduce(d_logLuminance, numRows * numCols, K, []__device__(float a, float b){return min(a,b);}); 
-   max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__device__(float a, float b){return max(a,b);}); 
-   printf("%f %f", min_logLum, max_logLum);
+  generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K);
+
+	
+ 
 }
