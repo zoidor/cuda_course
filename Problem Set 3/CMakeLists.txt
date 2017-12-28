@@ -9,6 +9,7 @@
 cmake_minimum_required(VERSION 3.5)
 
 set (CMAKE_CXX_STANDARD 11)
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++11" )
 
 find_package( OpenCV REQUIRED )
 find_package(CUDA QUIET REQUIRED)

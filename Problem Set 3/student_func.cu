@@ -80,6 +80,53 @@
 */
 
 #include "utils.h"
+#include <vector>
+#include <numeric>
+
+typedef float (*reduce_operator)(float, float);
+//ref http://developer.download.nvidia.com/compute/cuda/1.1-Beta/x86_website/projects/reduction/doc/reduction.pdf
+__global__ void cuda_reduce(const float * vec, const size_t length, reduce_operator op, float * out)
+{
+	extern __shared__ float s_vect[];
+	int tid = threadIdx.x;
+	int position = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	//Copy into shared memory
+	s_vect[tid] = vec[position];
+	__syncthreads();	
+
+	for(int s = blockDim.x / 2; s > 0; s /= 2)
+	{
+		if(tid >= s) continue;
+		s_vect[tid] = op(s_vect[tid], s_vect[tid + s]);
+		__syncthreads();	
+	}
+
+	if(tid == 0)
+	{
+		out[blockIdx.x] = s_vect[0];
+	}
+}
+
+float reduce(const float * d_vec, int length, reduce_operator op, int num_threads_per_block)
+{	
+	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
+	if(num_blocks == 0) num_blocks = 1;
+
+	float * d_out;
+	std::vector<float> h_out(num_blocks); 
+	checkCudaErrors(cudaMalloc(&d_out, sizeof(float) * num_blocks));
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(float)*num_threads_per_block>>>(d_vec, length, op, d_out);
+	
+	checkCudaErrors(cudaGetLastError());
+
+	cudaMemcpy(h_out.data(), d_out, sizeof(float) * num_blocks, cudaMemcpyDeviceToHost);
+
+	checkCudaErrors(cudaFree(d_out));
+	
+
+	return std::accumulate(h_out.cbegin() + 1, h_out.cend(), h_out[0], op);
+}
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   unsigned int* const d_cdf,
@@ -99,6 +146,6 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     4) Perform an exclusive scan (prefix sum) on the histogram to get
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
-
-
+   const int K = 32;
+   min_logLum = reduce(d_logLuminance, numRows * numCols, min, K); 
 }
