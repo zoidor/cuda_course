@@ -177,7 +177,7 @@ void generate_histogram(const float* const d_vec,
 
 	checkCudaErrors(cudaMemset(d_hist, 0, sizeof(unsigned int) * num_bins));
 	int numBlocks = (int)ceil(length_vec / (double)num_threads);
-
+	if(numBlocks == 0) numBlocks = 1;
 	const float range = vec_max - vec_min;
 	auto op = [num_bins, range, vec_min] __device__(float el) -> int{return min((size_t)((el - vec_min) / range * num_bins), num_bins - 1);};
 	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * num_bins>>> (d_vec, length_vec, 
