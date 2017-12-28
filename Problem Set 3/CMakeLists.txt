@@ -12,7 +12,7 @@ set (CMAKE_CXX_STANDARD 11)
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++11 --expt-extended-lambda" )
 
 find_package( OpenCV REQUIRED )
-find_package(CUDA QUIET REQUIRED)
+find_package(CUDA REQUIRED)
 
 SET (compare_files compare.cpp)
 
