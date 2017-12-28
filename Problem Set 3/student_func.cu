@@ -95,6 +95,12 @@ __global__ void print_arr(const T * const arr, const size_t length)
 
 //reference: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch39.html
 
+template<typename device_scan_operator>
+__global__ void cuda_scan(const float * d_vec, const size_t length_vec, device_scan_operator op)
+{
+	
+}
+
 //reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
 template<typename device_hist_operator>
 __global__ void cuda_hist(const float * d_vec, const size_t length_vec, unsigned int * d_hist, 
@@ -122,8 +128,8 @@ const size_t num_bins, device_hist_operator op){
 	
 }
 
-template<typename device_reduce_operator>
-__global__ void cuda_reduce(const float * vec, const size_t length, float * out, device_reduce_operator op)
+template<typename device_host_reduce_operator>
+__global__ void cuda_reduce(const float * vec, const size_t length, float * out, device_host_reduce_operator op)
 {
 	extern __shared__ float s_vect[];
 	const int tid = threadIdx.x;
@@ -149,8 +155,8 @@ __global__ void cuda_reduce(const float * vec, const size_t length, float * out,
 }
 
 
-template<typename device_reduce_operator>
-float reduce(const float * d_vec, int length, int num_threads_per_block, device_reduce_operator op)
+template<typename device_host_reduce_operator>
+float reduce(const float * d_vec, int length, int num_threads_per_block, device_host_reduce_operator op)
 {	
 	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
 	if(num_blocks == 0) num_blocks = 1;
@@ -190,6 +196,9 @@ void generate_histogram(const float* const d_vec,
 										d_hist, num_bins, op); 
 
 	checkCudaErrors(cudaGetLastError());		
+}
+
+void scan(const unsigned int * const d_vec, const size_t length){
 }
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
