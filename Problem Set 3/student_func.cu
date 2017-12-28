@@ -93,7 +93,9 @@ __global__ void print_arr(const T * const arr, const size_t length)
 } 
 
 
-//https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
+//reference: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch39.html
+
+//reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
 template<typename device_hist_operator>
 __global__ void cuda_hist(const float * d_vec, const size_t length_vec, unsigned int * d_hist, 
 const size_t num_bins, device_hist_operator op){
@@ -213,4 +215,6 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
    max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return max(a,b);}); 
 
   generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K);
+
+  scan(d_cdf, numBins);
 }
