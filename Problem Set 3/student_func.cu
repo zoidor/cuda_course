@@ -108,9 +108,11 @@ const size_t num_bins, device_hist_operator op){
 	__syncthreads();
 
 	const int position = blockIdx.x * blockDim.x + threadIdx.x;
-	const int bin = op(d_vec[position]);
-	atomicAdd(&s_hist[bin], 1);
-
+	if(position < length_vec)
+	{
+		const int bin = op(d_vec[position]);
+		atomicAdd(&s_hist[bin], 1);
+	}
 	__syncthreads();
 
 	for(int i = tid; i < num_bins; i += blockDim.x)
