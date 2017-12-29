@@ -27,28 +27,48 @@
 
 #include "utils.h"
 
+//reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
 __global__
-void yourHisto(const unsigned int* const vals, //INPUT
+void cuda_hist(const unsigned int* const vals, //INPUT
                unsigned int* const histo,      //OUPUT
-               int numVals)
+               int numVals, 
+	       int num_bins)
 {
-  //TODO fill in this kernel to calculate the histogram
-  //as quickly as possible
+ 	extern __shared__ unsigned int s_hist[];
 
-  //Although we provide only one kernel skeleton,
-  //feel free to use more if it will help you
-  //write faster code
+	const int tid = threadIdx.x;
+	
+	for(int i = tid; i < num_bins; i += blockDim.x)
+		s_hist[i] = 0;
+  
+	__syncthreads();
+
+	const int position = blockIdx.x * blockDim.x + threadIdx.x;
+	if(position < numVals)
+	{
+		const unsigned int bin = vals[position];
+		atomicAdd(&s_hist[bin], 1);
+	}
+	__syncthreads();
+
+	for(int i = tid; i < num_bins; i += blockDim.x)
+		atomicAdd(&histo[i], s_hist[i]);
 }
+
+
 
 void computeHistogram(const unsigned int* const d_vals, //INPUT
                       unsigned int* const d_histo,      //OUTPUT
                       const unsigned int numBins,
                       const unsigned int numElems)
 {
-  //TODO Launch the yourHisto kernel
+	const int num_threads = 32;
+	checkCudaErrors(cudaMemset(d_histo, 0, sizeof(unsigned int) * numBins));
+	int numBlocks = (int)ceil(numElems / (double)num_threads);
+	if(numBlocks == 0) numBlocks = 1;
+	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * numBins>>> (d_vals, d_histo, 
+										numElems, numBins); 
 
-  //if you want to use/launch more than one kernel,
-  //feel free
-
-  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
+   	checkCudaErrors(cudaGetLastError());		
+   	checkCudaErrors(cudaGetLastError());
 }
