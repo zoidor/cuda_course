@@ -42,7 +42,7 @@
 
  */
 
-
+//TODO: investigate wether the kernels can be reduced. Investigate whether block size can be used to improve performance. 
 template<typename device_scan_operator>
 __global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, const size_t length_vec, device_scan_operator op, unsigned int identity)
 {
