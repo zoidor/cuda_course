@@ -136,30 +136,6 @@ __global__ void scatter(const size_t * scatter_0, const size_t * scatter_1, cons
 	out[scatter_pos] = in[pos]; 
 }  
 
-__global__ void printV(const unsigned int * vals, const size_t numElems)
-{
-	for(size_t i = 0; i < numElems; ++i)
-		printf("%i %u\n", (int)i, vals[i]);
-
-	printf("------\n"); 
-}
-
-__global__ void printScatter(const size_t * scatter_0, const size_t * scatter_1, const size_t numElems)
-{
-	for(size_t i = 0; i < numElems; ++i)
-		printf("%i %i\n", (int)scatter_0[i], (int)scatter_1[i]);
-
-	printf("+++++++++\n"); 
-}
-
-template<typename OPtype>
-__global__ void printV(const unsigned int * vals, const size_t numElems, OPtype op)
-{
-	for(size_t i = 0; i < numElems; ++i)
-		printf("%i %u %u\n", (int)i, vals[i], op(vals[i]));
-
-	printf("------\n"); 
-}
 
 void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
