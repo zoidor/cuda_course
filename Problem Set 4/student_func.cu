@@ -144,6 +144,13 @@ __global__ void printV(const unsigned int * vals, const size_t numElems)
 	printf("------\n"); 
 }
 
+__global__ void printScatter(const size_t * scatter_0, const size_t * scatter_1, const size_t numElems)
+{
+	for(size_t i = 0; i < numElems; ++i)
+		printf("%i %i\n", (int)scatter_0[i], (int)scatter_1[i]);
+
+	printf("+++++++++\n"); 
+}
 
 template<typename OPtype>
 __global__ void printV(const unsigned int * vals, const size_t numElems, OPtype op)
@@ -195,8 +202,8 @@ void your_sort(unsigned int* const d_inputVals,
 
 	auto scan_op = [] __device__ (size_t el1, size_t el2) -> size_t {return el1 + el2;};
 
-	printV<<<1,1>>>(vals1, numElems);
-	for(int i = 0; i < 2; ++i)
+
+	for(int i = 0; i < numbits; ++i)
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> unsigned int
 			  {
@@ -205,10 +212,12 @@ void your_sort(unsigned int* const d_inputVals,
 
 		auto mask_op_1 = [mask]__device__ (unsigned int el) -> unsigned int
 			  {
-				return (int)((el & mask) == 1);
+				return (int)((el & mask) != 0);
 			  }; 
 
-				
+		
+		//printV<<<1,1>>>(vals1, numElems, mask_op_0);
+		
 		cuda_get_flags<<<num_blocks, K>>>(vals1, scatter_loc0, numElems, mask_op_0);
 		checkCudaErrors(cudaGetLastError());		
 		
@@ -221,17 +230,28 @@ void your_sort(unsigned int* const d_inputVals,
 		size_t start1;
 		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
 
+		size_t is_last_1;		
+		checkCudaErrors(cudaMemcpy(&is_last_1, &flags[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
+		
+		start1 += is_last_1;
+
 		cuda_get_flags<<<num_blocks, K>>>(vals1, scatter_loc1, numElems, mask_op_1);
-		scan(scatter_loc1, numElems, start1 + 1, scan_op);
+		scan(scatter_loc1, numElems, start1, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 				
+		//printScatter<<<1,1>>>(scatter_loc0, scatter_loc1, numElems);
+
 		scatter<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, numElems);
 		scatter<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, pos1, pos2, numElems);
 
 		std::swap(vals1, vals2);
 		std::swap(pos1, pos2);
 
+		/*
 		printV<<<1,1>>>(vals1, numElems, mask_op_0);
+		cudaDeviceSynchronize();
+		printf("<><><><>\n");
+		*/
 	}
 
 	checkCudaErrors(cudaFree(scatter_loc0));
@@ -245,4 +265,6 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaFree(vals2));
 	checkCudaErrors(cudaFree(pos1));
 	checkCudaErrors(cudaFree(pos2));
+
+		//printV<<<1,1>>>(d_outputVals, numElems);
 }
