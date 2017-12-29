@@ -165,10 +165,9 @@ void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
                unsigned int* const d_outputVals,
                unsigned int* const d_outputPos,
-               const size_t numElems_in)
+               const size_t numElems)
 { 
 
-	const size_t numElems = std::min(numElems_in, (size_t)10);
  	int numbits = sizeof(unsigned int) * 8;
 	
 	unsigned int * vals1 = NULL;
@@ -216,8 +215,6 @@ void your_sort(unsigned int* const d_inputVals,
 			  }; 
 
 		
-		//printV<<<1,1>>>(vals1, numElems, mask_op_0);
-		
 		cuda_get_flags<<<num_blocks, K>>>(vals1, scatter_loc0, numElems, mask_op_0);
 		checkCudaErrors(cudaGetLastError());		
 		
@@ -239,19 +236,11 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc1, numElems, start1, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 				
-		//printScatter<<<1,1>>>(scatter_loc0, scatter_loc1, numElems);
-
 		scatter<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, numElems);
 		scatter<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, pos1, pos2, numElems);
 
 		std::swap(vals1, vals2);
 		std::swap(pos1, pos2);
-
-		/*
-		printV<<<1,1>>>(vals1, numElems, mask_op_0);
-		cudaDeviceSynchronize();
-		printf("<><><><>\n");
-		*/
 	}
 
 	checkCudaErrors(cudaFree(scatter_loc0));
@@ -265,6 +254,4 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaFree(vals2));
 	checkCudaErrors(cudaFree(pos1));
 	checkCudaErrors(cudaFree(pos2));
-
-		//printV<<<1,1>>>(d_outputVals, numElems);
 }
