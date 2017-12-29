@@ -127,12 +127,12 @@ __global__ void cuda_get_flags(const unsigned int * vals, size_t * flags, size_t
 }
 
 
-__global__ void scatter(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags, const unsigned int * in, unsigned int * out, const size_t length)
+__global__ void scatter(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in, unsigned int * out, const size_t length)
 {
 	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 	if(pos >= length) return;
 
-	size_t scatter_pos = flags[pos] ? scatter_1[pos] : scatter_0[pos];
+	size_t scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
 	out[scatter_pos] = in[pos]; 
 }  
 
