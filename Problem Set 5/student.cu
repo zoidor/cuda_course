@@ -76,11 +76,11 @@ void computeHistogram(const unsigned int* const d_vals, //INPUT
                       const unsigned int numBins,
                       const unsigned int numElems)
 {
-	const int num_threads = 32;
+	const int num_threads = 512;
 	checkCudaErrors(cudaMemset(d_histo, 0, sizeof(unsigned int) * numBins));
 	int numBlocks = (int)ceil(numElems / (double)num_threads);
 	if(numBlocks == 0) numBlocks = 1;
-	cuda_hist_naive<<<numBlocks, num_threads, sizeof(unsigned int) * numBins>>> (d_vals, d_histo, 
+	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * numBins>>> (d_vals, d_histo, 
 										numElems, numBins); 
 
    	checkCudaErrors(cudaGetLastError());		
