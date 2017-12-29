@@ -1,0 +1,2 @@
+./HW3 ../memorial_raw.png 
+
