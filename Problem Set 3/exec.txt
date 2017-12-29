@@ -1,2 +1,2 @@
-./HW3 ../memorial_raw.png 
+./HW3 ../memorial_raw.png out.png ref.png 2 1
 
