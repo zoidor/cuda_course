@@ -94,12 +94,49 @@ __global__ void print_arr(const T * const arr, const size_t length)
 
 
 //reference: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch39.html
+//We assume that the number of bins is << than the number of processor. Hence we use a step efficient scan (Hillis & Steel). 
+//In a real scenario, we should implement both, check on various workloads 
+template<typename device_scan_operator>
+__global__ void cuda_scan_in_block(const unsigned int * d_in, unsigned int * d_out, const size_t length_vec, device_scan_operator op, unsigned int identity)
+{
+	extern __shared__ unsigned int s_block_scan_mem[];
+	unsigned int * s_block_scan1 = s_block_scan_mem;
+	unsigned int * s_block_scan2 = s_block_scan_mem + blockDim.x;
+	const int tid = threadIdx.x;
+	const int pos = tid + blockDim.x * blockIdx.x;
+
+	if(pos >= length_vec) return;
+
+	s_block_scan1[tid] = pos == 0 ? identity : d_in[pos -1];
+	__syncthreads();
+
+	for(int shift = 1; shift <= blockDim.x; shift *= 2)
+	{
+		const int prev = tid - shift;
+		if(prev >= 0)
+			s_block_scan2[tid] = op(s_block_scan1[tid], s_block_scan1[prev]);
+		else
+			s_block_scan2[tid] = s_block_scan1[tid];
+		__syncthreads();
+		unsigned int * tmp = s_block_scan1;
+		s_block_scan1 = s_block_scan2;
+		s_block_scan2 = tmp;
+	} 
+
+	d_out[pos] = s_block_scan1[tid];
+}
 
 template<typename device_scan_operator>
-__global__ void cuda_scan(const float * d_vec, const size_t length_vec, device_scan_operator op)
+__global__ void cuda_scan_post_process(const int * d_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size)
 {
-	
+	unsigned int pos = blockDim.x * blockIdx.x + threadIdx.x;
+	//we want that the previous and current block sizes can be different
+	unsigned int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
+	if(idx_of_block_in_scan == 0) return;
+	unsigned int last_el_of_prev_block = idx_of_block_in_scan * cuda_scan_in_block_b_size - 1;
+	//d_vec
 }
+
 
 //reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
 template<typename device_hist_operator>
@@ -191,14 +228,29 @@ void generate_histogram(const float* const d_vec,
 	int numBlocks = (int)ceil(length_vec / (double)num_threads);
 	if(numBlocks == 0) numBlocks = 1;
 	const float range = vec_max - vec_min;
-	auto op = [num_bins, range, vec_min] __device__(float el) -> int{return min((size_t)((el - vec_min) / range * num_bins), num_bins - 1);};
+	auto op = [num_bins, range, vec_min] __device__(float el) -> int
+	{
+		if(range ==  0.0f) return 0;
+		return min((size_t)((el - vec_min) / range * num_bins), num_bins - 1);
+	};
 	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * num_bins>>> (d_vec, length_vec, 
 										d_hist, num_bins, op); 
 
 	checkCudaErrors(cudaGetLastError());		
 }
 
-void scan(const unsigned int * const d_vec, const size_t length){
+template<typename operatorType>
+void scan(const unsigned int * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
+	int K = 32;
+	int num_blocks = std::ceil(length / (double)K);
+	unsigned int * d_out_vec = NULL;
+	checkCudaErrors(cudaMalloc(&d_out_vec, sizeof(unsigned int) * length));
+	cuda_scan_in_block<<<num_blocks, K, sizeof(unsigned int) * K * 2>>>(d_vec, d_out_vec, length, op, identity_element);
+	checkCudaErrors(cudaGetLastError());		
+	
+	print_arr<<<1, 1>>>(d_out_vec, length);	
+
+	checkCudaErrors(cudaFree(d_out_vec));	
 }
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
@@ -225,5 +277,5 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
 
   generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K);
 
-  scan(d_cdf, numBins);
+  scan(d_cdf, numBins, 0, [] __device__(unsigned int a, unsigned int b){return a + b;});
 }
