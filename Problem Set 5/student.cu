@@ -28,6 +28,7 @@
 #include "utils.h"
 
 //reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
+//reference2: http://developer.download.nvidia.com/compute/cuda/1.1-Beta/x86_website/projects/histogram64/doc/histogram.pdf
 __global__
 void cuda_hist(const unsigned int* const vals, //INPUT
                unsigned int* const histo,      //OUPUT

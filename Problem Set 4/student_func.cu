@@ -98,8 +98,8 @@ __global__ void cuda_scan_post_process(const size_t * in_vec, size_t * out_vec, 
 
 template<typename operatorType>
 void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
-	int K = 32;
-	int K2 = 64;
+	int K = 1024;
+	int K2 = 1024;
 	int num_blocks = std::ceil(length / (double)K);
 	int num_blocks2 = std::ceil(length / (double)K2);
 	size_t * d_out_vec = NULL;
@@ -172,7 +172,7 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaMemcpy(vals1, d_inputVals, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 	checkCudaErrors(cudaMemcpy(pos1, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
-	const int K = 32;
+	const int K = 512;
 	const int num_blocks = (int)ceil(numElems / (double)K);
 
 	auto scan_op = [] __device__ (size_t el1, size_t el2) -> size_t {return el1 + el2;};
