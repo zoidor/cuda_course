@@ -56,6 +56,20 @@ void cuda_hist(const unsigned int* const vals, //INPUT
 }
 
 
+__global__
+void cuda_hist_naive(const unsigned int* const vals, //INPUT
+               	     unsigned int* const histo,      //OUPUT
+                     int numVals, 
+	       	     int num_bins)
+{
+ 	const int pos = threadIdx.x + blockDim.x * blockIdx.x;
+	
+	if(pos < numVals)
+	{
+		const unsigned int bin = vals[pos];
+		atomicAdd(&histo[bin], 1);
+	}
+}
 
 void computeHistogram(const unsigned int* const d_vals, //INPUT
                       unsigned int* const d_histo,      //OUTPUT
@@ -66,7 +80,7 @@ void computeHistogram(const unsigned int* const d_vals, //INPUT
 	checkCudaErrors(cudaMemset(d_histo, 0, sizeof(unsigned int) * numBins));
 	int numBlocks = (int)ceil(numElems / (double)num_threads);
 	if(numBlocks == 0) numBlocks = 1;
-	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * numBins>>> (d_vals, d_histo, 
+	cuda_hist_naive<<<numBlocks, num_threads, sizeof(unsigned int) * numBins>>> (d_vals, d_histo, 
 										numElems, numBins); 
 
    	checkCudaErrors(cudaGetLastError());		
