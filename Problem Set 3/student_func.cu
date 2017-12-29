@@ -95,7 +95,7 @@ __global__ void print_arr(const T * const arr, const size_t length)
 
 //reference: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch39.html
 //We assume that the number of bins is << than the number of processor. Hence we use a step efficient scan (Hillis & Steel). 
-//In a real scenario, we should implement both, check on various workloads 
+//In a real scenario, we should implement both, check on various workloads and architectures. 
 template<typename device_scan_operator>
 __global__ void cuda_scan_in_block(const unsigned int * d_in, unsigned int * d_out, const size_t length_vec, device_scan_operator op, unsigned int identity)
 {
