@@ -134,16 +134,15 @@ __global__ void cuda_scan_post_process(const unsigned int * in_vec, unsigned int
 	if(pos >= length_vec) return;
 
 	//we want that the previous and current block sizes can be different
-	const unsigned int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
-	if(idx_of_block_in_scan == 0) return;
+	const int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
 	int last_el_of_prev_block = idx_of_block_in_scan * cuda_scan_in_block_b_size - 1;
-
-	if(last_el_of_prev_block >= length_vec) return;
 
 	//this is linear scan to put together the segment tails, I am assuming that the number 
 	//of blocks is relatively small hence this loop is not a problem. If the number of blocks is
 	//high, we generate an array of the segment tails and use scan on it. The recursion ends when
 	//we can execute the scan on a single block
+
+	out_vec[pos] = in_vec[pos];
 	for(; last_el_of_prev_block > 0; last_el_of_prev_block -= cuda_scan_in_block_b_size)
 	{
 		out_vec[pos] += in_vec[last_el_of_prev_block];
@@ -279,7 +278,6 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   const size_t numCols,
                                   const size_t numBins)
 {
-  //TODO
   /*Here are the steps you need to implement
     1) find the minimum and maximum value in the input logLuminance channel
        store in min_logLum and max_logLum
