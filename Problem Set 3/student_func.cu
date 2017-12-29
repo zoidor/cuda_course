@@ -127,14 +127,27 @@ __global__ void cuda_scan_in_block(const unsigned int * d_in, unsigned int * d_o
 }
 
 template<typename device_scan_operator>
-__global__ void cuda_scan_post_process(const int * d_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size)
+__global__ void cuda_scan_post_process(const unsigned int * in_vec, unsigned int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size)
 {
 	unsigned int pos = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if(pos >= length_vec) return;
+
 	//we want that the previous and current block sizes can be different
-	unsigned int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
+	const unsigned int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
 	if(idx_of_block_in_scan == 0) return;
-	unsigned int last_el_of_prev_block = idx_of_block_in_scan * cuda_scan_in_block_b_size - 1;
-	//d_vec
+	int last_el_of_prev_block = idx_of_block_in_scan * cuda_scan_in_block_b_size - 1;
+
+	if(last_el_of_prev_block >= length_vec) return;
+
+	//this is linear scan to put together the segment tails, I am assuming that the number 
+	//of blocks is relatively small hence this loop is not a problem. If the number of blocks is
+	//high, we generate an array of the segment tails and use scan on it. The recursion ends when
+	//we can execute the scan on a single block
+	for(; last_el_of_prev_block > 0; last_el_of_prev_block -= cuda_scan_in_block_b_size)
+	{
+		out_vec[pos] += in_vec[last_el_of_prev_block];
+	}
 }
 
 
@@ -240,15 +253,20 @@ void generate_histogram(const float* const d_vec,
 }
 
 template<typename operatorType>
-void scan(const unsigned int * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
+void scan(unsigned int * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
 	int K = 32;
+	int K2 = 64;
 	int num_blocks = std::ceil(length / (double)K);
+	int num_blocks2 = std::ceil(length / (double)K2);
 	unsigned int * d_out_vec = NULL;
+
 	checkCudaErrors(cudaMalloc(&d_out_vec, sizeof(unsigned int) * length));
+
 	cuda_scan_in_block<<<num_blocks, K, sizeof(unsigned int) * K * 2>>>(d_vec, d_out_vec, length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());		
 	
-	print_arr<<<1, 1>>>(d_out_vec, length);	
+	cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_vec, length, op, K);
+	checkCudaErrors(cudaGetLastError());		
 
 	checkCudaErrors(cudaFree(d_out_vec));	
 }
