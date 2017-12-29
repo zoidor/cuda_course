@@ -136,20 +136,42 @@ __global__ void scatter(const size_t * scatter_0, const size_t * scatter_1, cons
 	out[scatter_pos] = in[pos]; 
 }  
 
+__global__ void printV(const unsigned int * vals, const size_t numElems)
+{
+	for(size_t i = 0; i < numElems; ++i)
+		printf("%i %u\n", (int)i, vals[i]);
+
+	printf("------\n"); 
+}
+
+
+template<typename OPtype>
+__global__ void printV(const unsigned int * vals, const size_t numElems, OPtype op)
+{
+	for(size_t i = 0; i < numElems; ++i)
+		printf("%i %u %u\n", (int)i, vals[i], op(vals[i]));
+
+	printf("------\n"); 
+}
+
 void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
                unsigned int* const d_outputVals,
                unsigned int* const d_outputPos,
-               const size_t numElems)
+               const size_t numElems_in)
 { 
+
+	const size_t numElems = std::min(numElems_in, (size_t)10);
  	int numbits = sizeof(unsigned int) * 8;
 	
-	unsigned int * vals1 = d_inputVals;
-	unsigned int * vals2 = d_outputVals;
+	unsigned int * vals1 = NULL;
+	unsigned int * vals2 = NULL;
 
 
-	unsigned int * pos1 = d_inputPos;
-	unsigned int * pos2 = d_outputPos;
+	unsigned int * pos1 = NULL;
+	unsigned int * pos2 = NULL;
+
+	
 
 	size_t * scatter_loc0 = NULL;
 	size_t * scatter_loc1 = NULL;
@@ -158,13 +180,23 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaMalloc(&scatter_loc0, sizeof(size_t) * numElems));
 	checkCudaErrors(cudaMalloc(&flags, sizeof(size_t) * numElems));
 	checkCudaErrors(cudaMalloc(&scatter_loc1, sizeof(size_t) * numElems));
+
+
+	checkCudaErrors(cudaMalloc(&vals1, sizeof(unsigned int) * numElems));
+	checkCudaErrors(cudaMalloc(&vals2, sizeof(unsigned int) * numElems));
+	checkCudaErrors(cudaMalloc(&pos1, sizeof(unsigned int) * numElems));
+	checkCudaErrors(cudaMalloc(&pos2, sizeof(unsigned int) * numElems));
 	
+	checkCudaErrors(cudaMemcpy(vals1, d_inputVals, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
+	checkCudaErrors(cudaMemcpy(pos1, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
+
 	const int K = 32;
 	const int num_blocks = (int)ceil(numElems / (double)K);
 
 	auto scan_op = [] __device__ (size_t el1, size_t el2) -> size_t {return el1 + el2;};
 
-	for(int i = 0; i < numbits; ++i)
+	printV<<<1,1>>>(vals1, numElems);
+	for(int i = 0; i < 2; ++i)
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> unsigned int
 			  {
@@ -185,10 +217,11 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc0, numElems, 0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 		
+		
 		size_t start1;
 		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
 
-		cuda_get_flags<<<num_blocks, K>>>(d_inputVals, scatter_loc1, numElems, mask_op_1);
+		cuda_get_flags<<<num_blocks, K>>>(vals1, scatter_loc1, numElems, mask_op_1);
 		scan(scatter_loc1, numElems, start1 + 1, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 				
@@ -197,14 +230,19 @@ void your_sort(unsigned int* const d_inputVals,
 
 		std::swap(vals1, vals2);
 		std::swap(pos1, pos2);
+
+		printV<<<1,1>>>(vals1, numElems, mask_op_0);
 	}
 
 	checkCudaErrors(cudaFree(scatter_loc0));
 	checkCudaErrors(cudaFree(scatter_loc1));
 	checkCudaErrors(cudaFree(flags));
 
-	if(vals1 == d_outputVals) return;
-
 	checkCudaErrors(cudaMemcpy(d_outputVals, vals1, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 	checkCudaErrors(cudaMemcpy(d_outputPos, pos1, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
+
+	checkCudaErrors(cudaFree(vals1));
+	checkCudaErrors(cudaFree(vals2));
+	checkCudaErrors(cudaFree(pos1));
+	checkCudaErrors(cudaFree(pos2));
 }
