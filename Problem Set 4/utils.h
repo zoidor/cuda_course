@@ -33,6 +33,7 @@ void checkResultsExact(const T* const ref, const T* const gpu, size_t numElem) {
       exit(1);
     }
   }
+  std::cout<<"Check OK!!!\n";
 }
 
 template<typename T>

@@ -182,12 +182,12 @@ void your_sort(unsigned int* const d_inputVals,
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> unsigned int
 			  {
-				return (int)((el & mask) == 0);
+				return (unsigned int)((el & mask) == 0);
 			  };
 
 		auto mask_op_1 = [mask]__device__ (unsigned int el) -> unsigned int
 			  {
-				return (int)((el & mask) != 0);
+				return (unsigned int)((el & mask) != 0);
 			  }; 
 
 		
