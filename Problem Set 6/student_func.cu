@@ -162,10 +162,10 @@ void copy(T1 * dest, const T2 * source, std::size_t sz)
 	size_t num_blocks = (size_t)std::ceil(sz / (double)num_threads);
 	if(num_blocks == 0)  num_blocks = 1;
 	
-
 	auto op = []__device__(unsigned char in) -> float {return (float)in;};
 
 	map<<<num_blocks, num_threads>>>(dest, source, sz, op); 
+	checkCudaErrors(cudaGetLastError());
 }
 
 __global__ void perform_jacobi_iteration_cuda(const float * b1, float * b2, const unsigned char * source, const unsigned char *destination, 
@@ -234,6 +234,7 @@ void perform_jacobi_iteration(const float * b1, float * b2, const unsigned char 
 	size_t num_blocks_y = (size_t)std::ceil(sz_y / (double)num_threads);
 
 	perform_jacobi_iteration_cuda<<<dim3(num_blocks_x,  num_blocks_y), dim3(num_threads,num_threads)>>>(b1, b2, source, destination, mask, sz_x, sz_y);
+	checkCudaErrors(cudaGetLastError());
 }
 
 float * perform_jacobi(const unsigned char * source, const unsigned char * destination, const unsigned char * mask, 
@@ -257,6 +258,38 @@ float * perform_jacobi(const unsigned char * source, const unsigned char * desti
 	return b1;
 }
 
+__global__ void substitute_interior_pixels_cuda(uchar4 * d_destImg, const float * buffer_R, const float *buffer_G, const float * buffer_B, 
+			const unsigned char * mask, const size_t sz)
+{
+	/*
+	 6) Create the output image by replacing all the interior pixels
+	in the destination image with the result of the Jacobi iterations.
+	Just cast the floating point values to unsigned chars since we have
+	already made sure to clamp them to the correct range.
+	*/	
+	
+	size_t pos =  blockDim.x * blockIdx.x + threadIdx.x;
+
+	if(pos >= sz) return;
+
+	if(mask[pos] != mask_region_interior) return;
+
+	d_destImg[pos].x = (unsigned char) buffer_R[pos];
+	d_destImg[pos].y = (unsigned char) buffer_G[pos];
+	d_destImg[pos].z = (unsigned char) buffer_B[pos];
+}
+
+void substitute_interior_pixels(uchar4 * d_destImg, const float * buffer_R, const float *buffer_G, const float * buffer_B, 
+			const unsigned char * d_refined_mask, const size_t sz)
+{
+	const size_t num_threads = 128;
+	size_t num_blocks = (size_t)std::ceil(sz / (double)num_threads);
+	if(num_blocks == 0)  num_blocks = 1;
+	
+	substitute_interior_pixels_cuda<<<num_blocks, num_threads>>>(d_destImg, buffer_R, buffer_G, buffer_B, d_refined_mask, sz); 
+	checkCudaErrors(cudaGetLastError());
+}
+
 void your_blend(const uchar4* const h_sourceImg,  //IN
                 const size_t numRowsSource, const size_t numColsSource,
                 const uchar4* const h_destImg, //IN
@@ -268,6 +301,9 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
 	checkCudaErrors(cudaMalloc(&d_sourceImg, sizeof(uchar4) * numRowsSource * numColsSource));
 	checkCudaErrors(cudaMalloc(&d_destImg, sizeof(uchar4) * numRowsSource * numColsSource));
+
+	checkCudaErrors(cudaMemcpy(d_sourceImg, h_sourceImg, sizeof(uchar4) * numRowsSource * numColsSource, cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_destImg, h_destImg, sizeof(uchar4) * numRowsSource * numColsSource, cudaMemcpyHostToDevice));
 
 
   /* To Recap here are the steps you need to implement
@@ -285,7 +321,6 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
 
 	generate_mask(d_mask, d_sourceImg, numColsSource * numRowsSource);
-	
 
 /*     
 	2) Compute the interior and border regions of the mask.  An interior
@@ -298,7 +333,7 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 /*
      3) Separate out the incoming images into three separate channels
 */
-	//No checks for performance reasons
+
   	auto extract_channel_R = [] __device__ (uchar4 el) -> unsigned char { return el.x; };
   	auto extract_channel_G = [] __device__ (uchar4 el) -> unsigned char { return el.y; };
   	auto extract_channel_B = [] __device__ (uchar4 el) -> unsigned char { return el.z; };
@@ -340,7 +375,9 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 	float * buff_G = perform_jacobi(d_sourceImg_G, d_destinationImg_G, d_refined_mask, numColsSource, numRowsSource, 800);
 	float * buff_B = perform_jacobi(d_sourceImg_B, d_destinationImg_B, d_refined_mask, numColsSource, numRowsSource, 800);
 
-	substitute_interior_pixels(d_destImg, buffer_R, buffer_G, buffer_B, d_refined_mask, numColsSource, numRowsSource);
+	substitute_interior_pixels(d_destImg, buff_R, buff_G, buff_B, d_refined_mask, numColsSource * numRowsSource);
+
+	checkCudaErrors(cudaMemcpy(h_blendedImg, d_destImg, sizeof(uchar4) * numRowsSource * numColsSource, cudaMemcpyDeviceToHost));
 
 /*
      6) Create the output image by replacing all the interior pixels
