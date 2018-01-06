@@ -95,6 +95,18 @@ void generate_mask(unsigned char * mask, const uchar4 * img, const size_t sz)
 	checkCudaErrors(cudaGetLastError());
 }   
 
+
+template<typename opType>
+void extract_channel(unsigned char * out_img, const uchar4 * img, const size_t sz, opType op)
+{
+	const size_t num_threads = 128;
+	size_t num_blocks = (size_t)std::ceil(sz / (double)num_threads);
+	if(num_blocks == 0)  num_blocks = 1;
+	
+	map<<<num_blocks, num_threads>>>(out_img, img, sz, op);
+	checkCudaErrors(cudaGetLastError());
+}   
+
 __global__ void find_border_interior(const unsigned char * in_mask, unsigned char * out_mask, const size_t x_sz, const size_t y_sz)
 {
 	int x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -182,12 +194,39 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 	calculate_interior_border(d_mask, d_refined_mask, numRowsSource, numColsSource);
 	checkCudaErrors(cudaFree(d_mask));
 /*
-     3) Separate out the incoming image into three separate channels
+     3) Separate out the incoming images into three separate channels
 */
+	//No checks for performance reasons
+  	auto extract_channel_R = [] __device__ (uchar4 el) -> unsigned char { return el.x; };
+  	auto extract_channel_G = [] __device__ (uchar4 el) -> unsigned char { return el.y; };
+  	auto extract_channel_B = [] __device__ (uchar4 el) -> unsigned char { return el.z; };
+	
+	unsigned char * d_sourceImg_R = NULL;
+	unsigned char * d_sourceImg_G = NULL;
+	unsigned char * d_sourceImg_B = NULL;
 
+	checkCudaErrors(cudaMalloc(&d_sourceImg_R, sizeof(unsigned char) * numRowsSource * numColsSource));
+	checkCudaErrors(cudaMalloc(&d_sourceImg_G, sizeof(unsigned char) * numRowsSource * numColsSource));
+	checkCudaErrors(cudaMalloc(&d_sourceImg_B, sizeof(unsigned char) * numRowsSource * numColsSource));
 
-/*
-     4) Create two float(!) buffers for each color channel that will
+	extract_channel(d_sourceImg_R, d_sourceImg, numRowsSource * numColsSource, extract_channel_R);
+	extract_channel(d_sourceImg_G, d_sourceImg, numRowsSource * numColsSource, extract_channel_G);
+	extract_channel(d_sourceImg_B, d_sourceImg, numRowsSource * numColsSource, extract_channel_B);
+ 
+	unsigned char * d_destinationImg_R = NULL;
+	unsigned char * d_destinationImg_G = NULL;
+	unsigned char * d_destinationImg_B = NULL;
+
+	checkCudaErrors(cudaMalloc(&d_destinationImg_R, sizeof(unsigned char) * numRowsSource * numColsSource));
+	checkCudaErrors(cudaMalloc(&d_destinationImg_G, sizeof(unsigned char) * numRowsSource * numColsSource));
+	checkCudaErrors(cudaMalloc(&d_destinationImg_B, sizeof(unsigned char) * numRowsSource * numColsSource));
+
+	extract_channel(d_destinationImg_R, d_destImg, numRowsSource * numColsSource, extract_channel_R);
+	extract_channel(d_destinationImg_G, d_destImg, numRowsSource * numColsSource, extract_channel_G);
+	extract_channel(d_destinationImg_B, d_destImg, numRowsSource * numColsSource, extract_channel_B);
+ 
+
+/*   4) Create two float(!) buffers for each color channel that will
         act as our guesses.  Initialize them to the respective color
         channel of the source image since that will act as our intial guess.
 
@@ -212,6 +251,14 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
       to catch any errors that happened while executing the kernel.
   */
+
+	checkCudaErrors(cudaFree(d_sourceImg_R));
+	checkCudaErrors(cudaFree(d_sourceImg_G));
+	checkCudaErrors(cudaFree(d_sourceImg_B));
+
+	checkCudaErrors(cudaFree(d_destinationImg_R));
+	checkCudaErrors(cudaFree(d_destinationImg_G));
+	checkCudaErrors(cudaFree(d_destinationImg_B));
 
 	checkCudaErrors(cudaFree(d_sourceImg));
 	checkCudaErrors(cudaFree(d_refined_mask));
