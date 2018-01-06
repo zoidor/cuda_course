@@ -171,8 +171,30 @@ void copy(T1 * dest, const T2 * source, std::size_t sz)
 	checkCudaErrors(cudaGetLastError());
 }
 
-__global__ void perform_jacobi_iteration_cuda(const float * b1, float * b2, const unsigned char * source, const unsigned char *destination, 
-				const unsigned char *mask, const size_t sz_x, const size_t sz_y)
+__device__ void perform_j_neigh(const float * b1, const unsigned char * source, const unsigned char * destination, const unsigned char *mask, const size_t sz_x, const size_t sz_y, const int x, const int y, const int dx, const int dy, float& sum1, float& sum2,
+const int pos)
+{
+	int xn = x + dx;
+	int yn = y + dy;
+
+	if(xn < 0 || xn >= sz_x) return;
+	if(yn < 0 || yn >= sz_y) return;
+
+
+	int neigh = yn * sz_x + xn;
+	if(mask[neigh] == mask_region_interior)
+	{
+		sum1 += (float)b1[neigh];
+	}
+	else
+	{
+		sum1 += (float)destination[neigh];
+	}
+
+	sum2 += (float)source[pos] - (float)source[neigh];	
+}
+
+__global__ void perform_jacobi_iteration_cuda(const float * b1, float * b2, const unsigned char * source, const unsigned char * destination, const unsigned char *mask, const size_t sz_x, const size_t sz_y)
 {
 
 /*
@@ -200,30 +222,11 @@ __global__ void perform_jacobi_iteration_cuda(const float * b1, float * b2, cons
 	float sum1 = 0.0f;
 	float sum2 = 0.0f;
 
-	for(int i = -1; i <= 1; i += 2)
-	{
-		int xn = x + i;
+	perform_j_neigh(b1, source, destination, mask, sz_x, sz_y, x, y,  1,  0, sum1, sum2, pos);
+	perform_j_neigh(b1, source, destination, mask, sz_x, sz_y, x, y, -1,  0, sum1, sum2, pos);
+	perform_j_neigh(b1, source, destination, mask, sz_x, sz_y, x, y,  0, -1, sum1, sum2, pos);
+	perform_j_neigh(b1, source, destination, mask, sz_x, sz_y, x, y,  0,  1, sum1, sum2, pos);
 
-		if(xn < 0 || xn >= sz_x) continue;
- 
-		for(int j = -1; j <= 1; j += 2)
-		{
-			int yn = y + j;	
-			if(yn < 0 || yn >= sz_y) continue;
-			int neigh = yn * sz_x + xn;
-			if(mask[neigh] == mask_region_interior)
-			{
-				sum1 += (float)b1[neigh];
-			}
-			else
-			{
-				sum1 += (float)destination[neigh];
-			}
-
-			sum2 += (float)source[pos] - (float)source[neigh];
-		}	
-	}
-	
 	float newVal = (sum1 + sum2) / 4.0f;
 	newVal = min(255.0f, max(0.0f, newVal));	
 	b2[pos] = newVal;
