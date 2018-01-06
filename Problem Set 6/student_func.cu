@@ -155,6 +155,15 @@ void calculate_interior_border(const unsigned char * in_mask, unsigned char * ou
 	checkCudaErrors(cudaGetLastError());
 }
 
+float * perform_jacobi(const unsigned char * source, const unsigned char * destination, const size_t sz_x, const size_t sz_y)
+{
+	float * b1 = NULL;
+	float * b2 = NULL;
+
+
+	return b1;
+}
+
 void your_blend(const uchar4* const h_sourceImg,  //IN
                 const size_t numRowsSource, const size_t numColsSource,
                 const uchar4* const h_destImg, //IN
@@ -232,7 +241,13 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
      5) For each color channel perform the Jacobi iteration described 
         above 800 times.
+*/
 
+	float * buff_R = perform_jacobi(d_sourceImg_R, d_destinationImg_R, numColsSource, numRowsSource);
+	float * buff_G = perform_jacobi(d_sourceImg_G, d_destinationImg_G, numColsSource, numRowsSource);
+	float * buff_B = perform_jacobi(d_sourceImg_B, d_destinationImg_B, numColsSource, numRowsSource);
+
+/*
      6) Create the output image by replacing all the interior pixels
         in the destination image with the result of the Jacobi iterations.
         Just cast the floating point values to unsigned chars since we have
@@ -251,6 +266,10 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
       to catch any errors that happened while executing the kernel.
   */
+
+	checkCudaErrors(cudaFree(buff_R));
+	checkCudaErrors(cudaFree(buff_G));
+	checkCudaErrors(cudaFree(buff_B));
 
 	checkCudaErrors(cudaFree(d_sourceImg_R));
 	checkCudaErrors(cudaFree(d_sourceImg_G));
