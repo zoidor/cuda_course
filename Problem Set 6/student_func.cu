@@ -307,8 +307,8 @@ void print_arr(const T * arr, size_t length)
 	std::vector<T> h_arr(length);
 	cudaMemcpy(h_arr.data(), arr, sizeof(T) * length, cudaMemcpyDeviceToHost);
 
-	for(const auto e : h_arr)
-		std::cout<<(float)e<<"\n";
+	for(int i = 0; i < h_arr.size(); ++i)
+		std::cout<<i<<"|"<<(float)h_arr[i]<<"\n";
 	std::cout<<"-------------------------\n";
 }
 
@@ -350,7 +350,7 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
         in the mask itself, but has at least one neighbor that isn't.
 */
 
-	calculate_interior_border(d_mask, d_refined_mask, numRowsSource, numColsSource);
+	calculate_interior_border(d_mask, d_refined_mask, numColsSource, numRowsSource);
 	checkCudaErrors(cudaFree(d_mask));
 
 	print_arr(d_refined_mask, numColsSource * numRowsSource);
