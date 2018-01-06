@@ -154,12 +154,28 @@ void calculate_interior_border(const unsigned char * in_mask, unsigned char * ou
 	find_border_interior<<<dim3(num_blocks_x,  num_blocks_y), dim3(num_threads,num_threads)>>>(in_mask, out_mask, x_sz, y_sz);
 	checkCudaErrors(cudaGetLastError());
 }
+template<typename T1, typename T2>
+void copy(T1 * dest, const T2 * source, std::size_t sz)
+{
+	const size_t num_threads = 128;
+	size_t num_blocks = (size_t)std::ceil(sz / (double)num_threads);
+	if(num_blocks == 0)  num_blocks = 1;
+	
+
+	auto op = []__device__(unsigned char in) -> float {return (float)in;};
+
+	map<<<num_blocks, num_threads>>>(dest, source, sz, op); 
+}
 
 float * perform_jacobi(const unsigned char * source, const unsigned char * destination, const size_t sz_x, const size_t sz_y)
 {
 	float * b1 = NULL;
 	float * b2 = NULL;
 
+	checkCudaErrors(cudaMalloc(&b1, sizeof(float) * sz_x * sz_y));
+	checkCudaErrors(cudaMalloc(&b2, sizeof(float) * sz_x * sz_y));
+
+	copy(b1, source, sz_x * sz_y);
 
 	return b1;
 }
