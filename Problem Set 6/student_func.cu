@@ -67,6 +67,11 @@
 #include "utils.h"
 #include <thrust/host_vector.h>
 
+const unsigned char non_mask_region = 0;
+const unsigned char mask_region = 1; //unknown if border or or border
+const unsigned char mask_region_interior = 2; 
+const unsigned char mask_region_border = 3;
+ 
 template<typename OType, typename IType, typename OperatorType>
 __global__ void map(OType * out, const  IType * in, const size_t sz, OperatorType op)
 {
@@ -83,11 +88,60 @@ void generate_mask(unsigned char * mask, const uchar4 * img, const size_t sz)
 	
 	auto op =  []__device__(const uchar4 el) -> unsigned char
 	{
-		if(el.x == el.y && el.y == el.z && el.z == 255) return 255;
-		return 0;
+		if(el.x == el.y && el.y == el.z && el.z == 255) return mask_region;
+		return non_mask_region;
 	};
 	map<<<num_blocks, num_threads>>>(mask, img, sz, op);
+	checkCudaErrors(cudaGetLastError());
 }   
+
+__global__ void find_border_interior(const unsigned char * in_mask, unsigned char * out_mask, const size_t x_sz, const size_t y_sz)
+{
+	int x = threadIdx.x + blockIdx.x * blockDim.x;
+	int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if(x >= x_sz) return;
+	if(y >= y_sz) return;
+
+	int pos = y * x_sz + x;
+	if(in_mask[pos] == non_mask_region) 
+	{
+		out_mask[pos] = non_mask_region;
+		return;
+	}
+
+	int num_valid_neigh = 0;
+	int num_masked_neigh = 0;
+	for(int i = -1; i <= 1; i += 2)
+	{
+		int xn = x + i;
+
+		if(xn < 0 || xn >= x_sz) continue;
+ 
+		for(int j = -1; j <= 1; j += 2)
+		{
+			int yn = y + j;	
+			if(yn < 0 || yn >= y_sz) continue;
+			num_valid_neigh++;	
+			num_masked_neigh += in_mask[yn * x_sz + xn] == mask_region;
+		}	
+	}	
+
+	if(num_masked_neigh == num_valid_neigh &&  num_valid_neigh > 0)
+		out_mask[pos] = mask_region_interior;
+	else
+		out_mask[pos] = mask_region_border;
+	
+}
+
+void calculate_interior_border(const unsigned char * in_mask, unsigned char * out_mask, const size_t x_sz, const size_t y_sz)
+{
+	const size_t num_threads = 32;
+	size_t num_blocks_x = (size_t)std::ceil(x_sz / (double)num_threads);	
+	size_t num_blocks_y = (size_t)std::ceil(y_sz / (double)num_threads);
+	find_border_interior<<<dim3(num_blocks_x,  num_blocks_y), dim3(num_threads,num_threads)>>>(in_mask, out_mask, x_sz, y_sz);
+	checkCudaErrors(cudaGetLastError());
+}
 
 void your_blend(const uchar4* const h_sourceImg,  //IN
                 const size_t numRowsSource, const size_t numColsSource,
@@ -112,15 +166,27 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
 	unsigned char *d_mask = NULL;
 	checkCudaErrors(cudaMalloc(&d_mask, sizeof(unsigned char) * numRowsSource * numColsSource));
-	generate_mask(d_mask, d_sourceImg, numRowsSource * numColsSource);
+	unsigned char *d_refined_mask = NULL;
+	checkCudaErrors(cudaMalloc(&d_refined_mask , sizeof(unsigned char) * numRowsSource * numColsSource));
+
+
+	generate_mask(d_mask, d_sourceImg, numColsSource * numRowsSource);
 	
+
 /*     
 	2) Compute the interior and border regions of the mask.  An interior
         pixel has all 4 neighbors also inside the mask.  A border pixel is
         in the mask itself, but has at least one neighbor that isn't.
+*/
 
+	calculate_interior_border(d_mask, d_refined_mask, numRowsSource, numColsSource);
+	checkCudaErrors(cudaFree(d_mask));
+/*
      3) Separate out the incoming image into three separate channels
+*/
 
+
+/*
      4) Create two float(!) buffers for each color channel that will
         act as our guesses.  Initialize them to the respective color
         channel of the source image since that will act as our intial guess.
@@ -147,7 +213,7 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
       to catch any errors that happened while executing the kernel.
   */
 
-	cudaFree(d_sourceImg);
-	cudaFree(d_mask);
-	cudaFree(d_destImg);
+	checkCudaErrors(cudaFree(d_sourceImg));
+	checkCudaErrors(cudaFree(d_refined_mask));
+	checkCudaErrors(cudaFree(d_destImg));
 }
