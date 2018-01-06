@@ -108,8 +108,6 @@ void reference_calc(const uchar4* const h_sourceImg,
     mask[i] = (h_sourceImg[i].x + h_sourceImg[i].y + h_sourceImg[i].z < 3 * 255) ? 1 : 0;
   }
 
-  print_arr(mask, srcSize);
-
   //next compute strictly interior pixels and border pixels
   unsigned char *borderPixels = new unsigned char[srcSize];
   unsigned char *strictInteriorPixels = new unsigned char[srcSize];
