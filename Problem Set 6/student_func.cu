@@ -116,6 +116,7 @@ __global__ void find_border_interior(const unsigned char * in_mask, unsigned cha
 	if(y >= y_sz) return;
 
 	int pos = y * x_sz + x;
+
 	if(in_mask[pos] == non_mask_region) 
 	{
 		out_mask[pos] = non_mask_region;
@@ -167,6 +168,74 @@ void copy(T1 * dest, const T2 * source, std::size_t sz)
 	map<<<num_blocks, num_threads>>>(dest, source, sz, op); 
 }
 
+__global__ void perform_jacobi_iteration_cuda(const float * b1, float * b2, const unsigned char * source, const unsigned char *destination, 
+				const unsigned char *mask, const size_t sz_x, const size_t sz_y)
+{
+
+/*
+	1) For every pixel p in the interior, compute two sums over the four neighboring pixels:
+	Sum1: If the neighbor is in the interior then += ImageGuess_prev[neighbor]
+		else if the neighbor in on the border then += DestinationImg[neighbor]
+
+	Sum2: += SourceImg[p] - SourceImg[neighbor]   (for all four neighbors)
+
+	2) Calculate the new pixel value:
+	float newVal= (Sum1 + Sum2) / 4.f  <------ Notice that the result is FLOATING POINT
+	ImageGuess_next[p] = min(255, max(0, newVal)); //clamp to [0, 255]
+*/
+
+	int x = threadIdx.x + blockIdx.x * blockDim.x;
+	int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if(x >= sz_x) return;
+	if(y >= sz_y) return;
+
+	int pos = y * sz_x + x;
+
+	if(mask[pos] == non_mask_region) return;
+
+	float sum1 = 0.0f;
+	float sum2 = 0.0f;
+
+	for(int i = -1; i <= 1; i += 2)
+	{
+		int xn = x + i;
+
+		if(xn < 0 || xn >= sz_x) continue;
+ 
+		for(int j = -1; j <= 1; j += 2)
+		{
+			int yn = y + j;	
+			if(yn < 0 || yn >= sz_y) continue;
+			int neigh = yn * sz_x + xn;
+			if(mask[neigh] == mask_region_interior)
+			{
+				sum1 += (float)b1[neigh];
+			}
+			else
+			{
+				sum1 += (float)destination[neigh];
+			}
+
+			sum2 += (float)source[pos] - (float)source[neigh];
+		}	
+	}
+	
+	float newVal = (sum1 + sum2) / 4.0f;
+	newVal = min(255.0f, max(0.0f, newVal));	
+	b2[pos] = newVal;
+}
+
+void perform_jacobi_iteration(const float * b1, float * b2, const unsigned char * source, const unsigned char *destination, 
+				const unsigned char *mask, const size_t sz_x, const size_t sz_y)
+{
+	const size_t num_threads = 32;
+	size_t num_blocks_x = (size_t)std::ceil(sz_x / (double)num_threads);	
+	size_t num_blocks_y = (size_t)std::ceil(sz_y / (double)num_threads);
+
+	perform_jacobi_iteration_cuda<<<dim3(num_blocks_x,  num_blocks_y), dim3(num_threads,num_threads)>>>(b1, b2, source, destination, mask, sz_x, sz_y);
+}
+
 float * perform_jacobi(const unsigned char * source, const unsigned char * destination, const unsigned char * mask, 
 		const size_t sz_x, const size_t sz_y, const size_t num_iter)
 {
@@ -180,7 +249,7 @@ float * perform_jacobi(const unsigned char * source, const unsigned char * desti
 
 	for(size_t i = 0; i < num_iter; ++i)
 	{
-		
+		perform_jacobi_iteration(b1, b2, source, destination, mask, sz_x, sz_y);
 		std::swap(b1, b2);
 	}
 	
