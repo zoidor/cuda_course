@@ -167,7 +167,8 @@ void copy(T1 * dest, const T2 * source, std::size_t sz)
 	map<<<num_blocks, num_threads>>>(dest, source, sz, op); 
 }
 
-float * perform_jacobi(const unsigned char * source, const unsigned char * destination, const size_t sz_x, const size_t sz_y)
+float * perform_jacobi(const unsigned char * source, const unsigned char * destination, const unsigned char * mask, 
+		const size_t sz_x, const size_t sz_y, const size_t num_iter)
 {
 	float * b1 = NULL;
 	float * b2 = NULL;
@@ -177,6 +178,13 @@ float * perform_jacobi(const unsigned char * source, const unsigned char * desti
 
 	copy(b1, source, sz_x * sz_y);
 
+	for(size_t i = 0; i < num_iter; ++i)
+	{
+		
+		std::swap(b1, b2);
+	}
+	
+	checkCudaErrors(cudaFree(b2));
 	return b1;
 }
 
@@ -259,9 +267,9 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
         above 800 times.
 */
 
-	float * buff_R = perform_jacobi(d_sourceImg_R, d_destinationImg_R, numColsSource, numRowsSource);
-	float * buff_G = perform_jacobi(d_sourceImg_G, d_destinationImg_G, numColsSource, numRowsSource);
-	float * buff_B = perform_jacobi(d_sourceImg_B, d_destinationImg_B, numColsSource, numRowsSource);
+	float * buff_R = perform_jacobi(d_sourceImg_R, d_destinationImg_R, d_refined_mask, numColsSource, numRowsSource, 800);
+	float * buff_G = perform_jacobi(d_sourceImg_G, d_destinationImg_G, d_refined_mask, numColsSource, numRowsSource, 800);
+	float * buff_B = perform_jacobi(d_sourceImg_B, d_destinationImg_B, d_refined_mask, numColsSource, numRowsSource, 800);
 
 /*
      6) Create the output image by replacing all the interior pixels
