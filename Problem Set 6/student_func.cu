@@ -343,7 +343,6 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
 
 	generate_mask(d_mask, d_sourceImg, numColsSource * numRowsSource);
-	print_arr(d_mask, numColsSource * numRowsSource);
 
 /*     
 	2) Compute the interior and border regions of the mask.  An interior
@@ -353,6 +352,9 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
 	calculate_interior_border(d_mask, d_refined_mask, numRowsSource, numColsSource);
 	checkCudaErrors(cudaFree(d_mask));
+
+	print_arr(d_refined_mask, numColsSource * numRowsSource);
+
 /*
      3) Separate out the incoming images into three separate channels
 */
