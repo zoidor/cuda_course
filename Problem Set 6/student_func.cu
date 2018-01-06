@@ -88,8 +88,8 @@ void generate_mask(unsigned char * mask, const uchar4 * img, const size_t sz)
 	
 	auto op =  []__device__(const uchar4 el) -> unsigned char
 	{
-		if(el.x == el.y && el.y == el.z && el.z == 255) return mask_region;
-		return non_mask_region;
+		if(el.x == el.y && el.y == el.z && el.z == 255) return non_mask_region;
+		return mask_region;
 	};
 	map<<<num_blocks, num_threads>>>(mask, img, sz, op);
 	checkCudaErrors(cudaGetLastError());
@@ -290,6 +290,28 @@ void substitute_interior_pixels(uchar4 * d_destImg, const float * buffer_R, cons
 	checkCudaErrors(cudaGetLastError());
 }
 
+
+void print_arr_uchar(const uchar4 * arr, size_t length)
+{
+	std::vector<uchar4> h_arr(length);
+	cudaMemcpy(h_arr.data(), arr, sizeof(uchar4) * length, cudaMemcpyDeviceToHost);
+
+	for(const auto e : h_arr)
+		std::cout<<(float)e.x<<"|"<<(float)e.x<<"|"<<(float)e.z<<"\n";
+	std::cout<<"-------------------------\n";
+}
+
+template<typename T>
+void print_arr(const T * arr, size_t length)
+{
+	std::vector<T> h_arr(length);
+	cudaMemcpy(h_arr.data(), arr, sizeof(T) * length, cudaMemcpyDeviceToHost);
+
+	for(const auto e : h_arr)
+		std::cout<<(float)e<<"\n";
+	std::cout<<"-------------------------\n";
+}
+
 void your_blend(const uchar4* const h_sourceImg,  //IN
                 const size_t numRowsSource, const size_t numColsSource,
                 const uchar4* const h_destImg, //IN
@@ -321,6 +343,7 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
 
 	generate_mask(d_mask, d_sourceImg, numColsSource * numRowsSource);
+	print_arr(d_mask, numColsSource * numRowsSource);
 
 /*     
 	2) Compute the interior and border regions of the mask.  An interior

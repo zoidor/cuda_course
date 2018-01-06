@@ -85,6 +85,13 @@ void computeG(const unsigned char* const channel,
   }
 }
 
+void print_arr(const unsigned char * arr, size_t length)
+{
+	for(std::size_t i = 0; i < length; ++i)
+		std::cout<<(float)arr[i]<<std::endl;
+	std::cout<<"++++++++++++++++++++++++++++++++\n";
+}
+
 void reference_calc(const uchar4* const h_sourceImg,
                     const size_t numRowsSource, const size_t numColsSource,
                     const uchar4* const h_destImg,
@@ -100,6 +107,8 @@ void reference_calc(const uchar4* const h_sourceImg,
   for (int i = 0; i < srcSize; ++i) {
     mask[i] = (h_sourceImg[i].x + h_sourceImg[i].y + h_sourceImg[i].z < 3 * 255) ? 1 : 0;
   }
+
+  print_arr(mask, srcSize);
 
   //next compute strictly interior pixels and border pixels
   unsigned char *borderPixels = new unsigned char[srcSize];
