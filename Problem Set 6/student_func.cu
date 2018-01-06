@@ -107,6 +107,18 @@ void extract_channel(unsigned char * out_img, const uchar4 * img, const size_t s
 	checkCudaErrors(cudaGetLastError());
 }   
 
+__device__ void add_neigh(const unsigned char * in_mask, const size_t x_sz, const size_t y_sz, const int x, const int y, const int dx, const int dy, int &num_valid_neigh, int &num_masked_neigh)
+{
+	int yn = y + dy;
+	int xn = x + dx;
+
+	if(xn < 0 || xn >= x_sz) return;
+	if(yn < 0 || yn >= y_sz) return;
+
+	num_valid_neigh++;
+	num_masked_neigh += in_mask[yn * x_sz + xn] == mask_region;	
+}
+
 __global__ void find_border_interior(const unsigned char * in_mask, unsigned char * out_mask, const size_t x_sz, const size_t y_sz)
 {
 	int x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -125,20 +137,11 @@ __global__ void find_border_interior(const unsigned char * in_mask, unsigned cha
 
 	int num_valid_neigh = 0;
 	int num_masked_neigh = 0;
-	for(int i = -1; i <= 1; i += 2)
-	{
-		int xn = x + i;
 
-		if(xn < 0 || xn >= x_sz) continue;
- 
-		for(int j = -1; j <= 1; j += 2)
-		{
-			int yn = y + j;	
-			if(yn < 0 || yn >= y_sz) continue;
-			num_valid_neigh++;	
-			num_masked_neigh += in_mask[yn * x_sz + xn] == mask_region;
-		}	
-	}	
+	add_neigh(in_mask, x_sz, y_sz, x, y,  0,  1, num_valid_neigh, num_masked_neigh);
+	add_neigh(in_mask, x_sz, y_sz, x, y,  0, -1, num_valid_neigh, num_masked_neigh);
+	add_neigh(in_mask, x_sz, y_sz, x, y, -1,  0, num_valid_neigh, num_masked_neigh);
+	add_neigh(in_mask, x_sz, y_sz, x, y, -1,  0, num_valid_neigh, num_masked_neigh);
 
 	if(num_masked_neigh == num_valid_neigh &&  num_valid_neigh > 0)
 		out_mask[pos] = mask_region_interior;
