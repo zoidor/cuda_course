@@ -192,7 +192,7 @@ __global__ void perform_jacobi_iteration_cuda(const float * b1, float * b2, cons
 
 	int pos = y * sz_x + x;
 
-	if(mask[pos] == non_mask_region) return;
+	if(mask[pos] != mask_region_interior) return;
 
 	float sum1 = 0.0f;
 	float sum2 = 0.0f;
@@ -339,6 +339,8 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 	float * buff_R = perform_jacobi(d_sourceImg_R, d_destinationImg_R, d_refined_mask, numColsSource, numRowsSource, 800);
 	float * buff_G = perform_jacobi(d_sourceImg_G, d_destinationImg_G, d_refined_mask, numColsSource, numRowsSource, 800);
 	float * buff_B = perform_jacobi(d_sourceImg_B, d_destinationImg_B, d_refined_mask, numColsSource, numRowsSource, 800);
+
+	substitute_interior_pixels(d_destImg, buffer_R, buffer_G, buffer_B, d_refined_mask, numColsSource, numRowsSource);
 
 /*
      6) Create the output image by replacing all the interior pixels
