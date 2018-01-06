@@ -141,7 +141,7 @@ __global__ void find_border_interior(const unsigned char * in_mask, unsigned cha
 	add_neigh(in_mask, x_sz, y_sz, x, y,  0,  1, num_valid_neigh, num_masked_neigh);
 	add_neigh(in_mask, x_sz, y_sz, x, y,  0, -1, num_valid_neigh, num_masked_neigh);
 	add_neigh(in_mask, x_sz, y_sz, x, y, -1,  0, num_valid_neigh, num_masked_neigh);
-	add_neigh(in_mask, x_sz, y_sz, x, y, -1,  0, num_valid_neigh, num_masked_neigh);
+	add_neigh(in_mask, x_sz, y_sz, x, y,  1,  0, num_valid_neigh, num_masked_neigh);
 
 	if(num_masked_neigh == num_valid_neigh &&  num_valid_neigh > 0)
 		out_mask[pos] = mask_region_interior;
