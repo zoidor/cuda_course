@@ -67,11 +67,40 @@
 #include "utils.h"
 #include <thrust/host_vector.h>
 
+template<typename OType, typename IType, typename OperatorType>
+__global__ void map(OType * out, const  IType * in, const size_t sz, OperatorType op)
+{
+	size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
+	if(pos >= sz) return;
+	out[pos] = op(in[pos]);
+}
+
+void generate_mask(unsigned char * mask, const uchar4 * img, const size_t sz)
+{
+	const size_t num_threads = 128;
+	size_t num_blocks = (size_t)std::ceil(sz / (double)num_threads);
+	if(num_blocks == 0)  num_blocks = 1;
+	
+	auto op =  []__device__(const uchar4 el) -> unsigned char
+	{
+		if(el.x == el.y && el.y == el.z && el.z == 255) return 255;
+		return 0;
+	};
+	map<<<num_blocks, num_threads>>>(mask, img, sz, op);
+}   
+
 void your_blend(const uchar4* const h_sourceImg,  //IN
                 const size_t numRowsSource, const size_t numColsSource,
                 const uchar4* const h_destImg, //IN
                 uchar4* const h_blendedImg) //OUT
 {
+
+	uchar4 *d_sourceImg = NULL;
+	uchar4 *d_destImg = NULL;
+
+	checkCudaErrors(cudaMalloc(&d_sourceImg, sizeof(uchar4) * numRowsSource * numColsSource));
+	checkCudaErrors(cudaMalloc(&d_destImg, sizeof(uchar4) * numRowsSource * numColsSource));
+
 
   /* To Recap here are the steps you need to implement
   
@@ -79,7 +108,14 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
         The pixels that shouldn't be copied are completely white, they
         have R=255, G=255, B=255.  Any other pixels SHOULD be copied.
 
-     2) Compute the interior and border regions of the mask.  An interior
+	*/
+
+	unsigned char *d_mask = NULL;
+	checkCudaErrors(cudaMalloc(&d_mask, sizeof(unsigned char) * numRowsSource * numColsSource));
+	generate_mask(d_mask, d_sourceImg, numRowsSource * numColsSource);
+	
+/*     
+	2) Compute the interior and border regions of the mask.  An interior
         pixel has all 4 neighbors also inside the mask.  A border pixel is
         in the mask itself, but has at least one neighbor that isn't.
 
@@ -110,4 +146,8 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 
       to catch any errors that happened while executing the kernel.
   */
+
+	cudaFree(d_sourceImg);
+	cudaFree(d_mask);
+	cudaFree(d_destImg);
 }
