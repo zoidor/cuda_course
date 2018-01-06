@@ -356,7 +356,6 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 	calculate_interior_border(d_mask, d_refined_mask, numColsSource, numRowsSource);
 	checkCudaErrors(cudaFree(d_mask));
 
-	print_arr(d_refined_mask, numColsSource * numRowsSource);
 
 /*
      3) Separate out the incoming images into three separate channels
