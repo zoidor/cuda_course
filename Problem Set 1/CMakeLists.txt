@@ -13,6 +13,12 @@ set (CMAKE_CXX_STANDARD 11)
 find_package(CUDA REQUIRED )
 find_package( OpenCV REQUIRED )
 
+set(
+    CUDA_NVCC_FLAGS
+    ${CUDA_NVCC_FLAGS};
+    -O3
+)
+
 file( GLOB  hdr *.hpp *.h )
 file( GLOB  cu  *.cu)
 SET (HW1_files main.cpp reference_calc.cpp compare.cpp)
