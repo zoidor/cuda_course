@@ -101,9 +101,24 @@ int main(int argc, char **argv) {
   postProcess(h_blendedImg, numRowsSource, numColsSource, output_file);
 
   // calculate the reference image
+ 
+  GpuTimer timer2;
+  timer2.Start();
+
   uchar4* h_reference = new uchar4[numRowsSource*numColsSource];
   reference_calc(h_sourceImg, numRowsSource, numColsSource,
                    h_destImg, h_reference);
+
+ timer2.Stop();
+
+  err = printf("REF code ran in: %f msecs.\n", timer2.Elapsed());
+  printf("\n");
+  if (err < 0) {
+    //Couldn't print! Probably the student closed stdout - bad news
+    std::cerr << "Couldn't print timing information! STDOUT Closed!" << std::endl;
+    exit(1);
+  }
+
 
   // save the reference image
   postProcess(h_reference, numRowsSource, numColsSource, reference_file);
