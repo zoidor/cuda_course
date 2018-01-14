@@ -199,31 +199,19 @@ float reduce(const float * d_vec, int length, int num_threads_per_block, device_
 	return std::accumulate(h_out.cbegin() + 1, h_out.cend(), h_out[0], op);
 }
 
-//reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
+//We tried to use: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
+//but this simpler version that uses global memory performs better in this case. We did some performance tuning and the
+//bottleneck was in the access to shared memory.
 template<typename device_hist_operator>
 __global__ void cuda_hist(const float * d_vec, const size_t length_vec, unsigned int * d_hist, 
 const size_t num_bins, device_hist_operator op){
-
-	extern __shared__ unsigned int s_hist[];
-
-	const int tid = threadIdx.x;
 	
-	for(int i = tid; i < num_bins; i += blockDim.x)
-		s_hist[i] = 0;
-  
-	__syncthreads();
-
 	const int position = blockIdx.x * blockDim.x + threadIdx.x;
 	if(position < length_vec)
 	{
 		const int bin = op(d_vec[position]);
-		atomicAdd(&s_hist[bin], 1);
+		atomicAdd(&d_hist[bin], 1);
 	}
-	__syncthreads();
-
-	for(int i = tid; i < num_bins; i += blockDim.x)
-		atomicAdd(&d_hist[i], s_hist[i]);
-	
 }
 
 void generate_histogram(const float* const d_vec,
@@ -244,7 +232,7 @@ void generate_histogram(const float* const d_vec,
 		if(range ==  0.0f) return 0;
 		return min((size_t)((el - vec_min) / range * num_bins), num_bins - 1);
 	};
-	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * num_bins>>> (d_vec, length_vec, 
+	cuda_hist<<<numBlocks, num_threads>>> (d_vec, length_vec, 
 										d_hist, num_bins, op); 
 
 	checkCudaErrors(cudaGetLastError());		
