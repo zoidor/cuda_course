@@ -111,9 +111,23 @@ int main(int argc, char **argv) {
   thrust::host_vector<unsigned int> h_outputVals(numElems);
   thrust::host_vector<unsigned int> h_outputPos(numElems);
 
+  GpuTimer timer2;
+  timer2.Start();
+
   reference_calculation(&h_inputVals[0], &h_inputPos[0],
 						&h_outputVals[0], &h_outputPos[0],
 						numElems);
+
+  timer2.Stop();
+  printf("\n");
+  err = printf("REF code ran in: %f msecs.\n", timer2.Elapsed());
+
+  if (err < 0) {
+    //Couldn't print! Probably the student closed stdout - bad news
+    std::cerr << "Couldn't print timing information! STDOUT Closed!" << std::endl;
+    exit(1);
+  }
+
 
   //postProcess(valsPtr, posPtr, numElems, reference_file);
 
