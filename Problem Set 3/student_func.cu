@@ -221,8 +221,8 @@ const size_t num_bins, device_hist_operator op){
 	}
 	__syncthreads();
 
-	//for(int i = tid; i < num_bins; i += blockDim.x)
-	//	atomicAdd(&d_hist[i], s_hist[i]);
+	for(int i = tid; i < num_bins; i += blockDim.x)
+		atomicAdd(&d_hist[i], s_hist[i]);
 	
 }
 
