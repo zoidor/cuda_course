@@ -35,14 +35,49 @@
 #include "utils.h"
 
 
-__device__ float pixel_to_gray_scale(const uchar4& px);
+/*Private functions, forward declarations*/
+__device__ static float pixel_to_gray_scale(const uchar4& px);
 
+
+
+__global__
+void static rgba_to_greyscale(const uchar4* const rgbaImage,
+                       unsigned char* const greyImage,
+                       int numRows, int numCols);
+
+
+/**
+ * @brief Entry point function, provided by the HW. This functions takes a 
+ *
+ * This function takes as input an rgba image and fills a buffer with the corresponding
+ * grayscale image.
+ * 
+ * @param h_rgbaImage: input, image buffer in host memory. Probably given to confuse the student. Ignored
+ * @param d_rgbaImage: input, image buffer in device memory. Provided by the caller code
+ * @param d_greyImage: output, pre-allocated image buffer in devide memory for the greyscale image
+ * @param numRows:     input, number of rows of the image
+ * @param numCols:     input, number of columns of the image 
+ */
+void your_rgba_to_greyscale(const uchar4 * const h_rgbaImage, uchar4 * const d_rgbaImage,
+                            unsigned char* const d_greyImage, size_t numRows, size_t numCols)
+{
+
+  const int blockSide = 32;
+  const int rowBlocks = ceil(numRows / (double)blockSide);
+  const int colBlocks = ceil(numCols / (double)blockSide);
+  const dim3 blockSize(colBlocks, rowBlocks, 1);
+  const dim3 gridSize(blockSide, blockSide, 1);
+  rgba_to_greyscale<<<gridSize, blockSize>>>(d_rgbaImage, d_greyImage, numRows, numCols);
+  
+  checkCudaErrors(cudaGetLastError());
+}
 
 __global__
 void rgba_to_greyscale(const uchar4* const rgbaImage,
                        unsigned char* const greyImage,
                        int numRows, int numCols)
 {
+  /* -------- Test instructions -------- */
   //Fill in the kernel to convert from color to greyscale
   //the mapping from components of a uchar4 to RGBA is:
   // .x -> R ; .y -> G ; .z -> B ; .w -> A
@@ -55,6 +90,9 @@ void rgba_to_greyscale(const uchar4* const rgbaImage,
   //to an absolute 2D location in the image, then use that to
   //calculate a 1D offset
 
+  /* ----- End of Test Instructions ----- */
+
+
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -66,24 +104,11 @@ void rgba_to_greyscale(const uchar4* const rgbaImage,
   greyImage[idx] = pixel_to_gray_scale(rgbaImage[idx]);
 }
 
-void your_rgba_to_greyscale(const uchar4 * const h_rgbaImage, uchar4 * const d_rgbaImage,
-                            unsigned char* const d_greyImage, size_t numRows, size_t numCols)
-{
-  //You must fill in the correct sizes for the blockSize and gridSize
-  //currently only one block with one thread is being launched
-  const int K = 32;
-  const int rowBlocks = ceil(numRows / (double)K);
-  const int colBlocks = ceil(numCols / (double)K);
-  const dim3 blockSize(colBlocks, rowBlocks, 1);
-  const dim3 gridSize(K, K, 1);
-  rgba_to_greyscale<<<gridSize, blockSize>>>(d_rgbaImage, d_greyImage, numRows, numCols);
-  
-  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
-
-}
 
 __device__ float pixel_to_gray_scale(const uchar4& px)
 {
 	return (float)(.299f * (float)px.x + .587f * (float)px.y + .114f * (float)px.z);
 }
+
+
 
