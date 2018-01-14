@@ -253,8 +253,8 @@ void generate_histogram(const float* const d_vec,
 
 template<typename operatorType>
 void scan(unsigned int * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
-	int K = 32;
-	int K2 = 64;
+	int K = 64;
+	int K2 = 128;
 	int num_blocks = std::ceil(length / (double)K);
 	int num_blocks2 = std::ceil(length / (double)K2);
 	unsigned int * d_out_vec = NULL;
@@ -287,7 +287,7 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     4) Perform an exclusive scan (prefix sum) on the histogram to get
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
-   const int K = 32;
+   const int K = 128;
    min_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return min(a,b);}); 
    max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return max(a,b);}); 
 
