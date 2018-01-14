@@ -150,33 +150,6 @@ __global__ void cuda_scan_post_process(const unsigned int * in_vec, unsigned int
 }
 
 
-//reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
-template<typename device_hist_operator>
-__global__ void cuda_hist(const float * d_vec, const size_t length_vec, unsigned int * d_hist, 
-const size_t num_bins, device_hist_operator op){
-
-	extern __shared__ unsigned int s_hist[];
-
-	const int tid = threadIdx.x;
-	
-	for(int i = tid; i < num_bins; i += blockDim.x)
-		s_hist[i] = 0;
-  
-	__syncthreads();
-
-	const int position = blockIdx.x * blockDim.x + threadIdx.x;
-	if(position < length_vec)
-	{
-		const int bin = op(d_vec[position]);
-		atomicAdd(&s_hist[bin], 1);
-	}
-	__syncthreads();
-
-	for(int i = tid; i < num_bins; i += blockDim.x)
-		atomicAdd(&d_hist[i], s_hist[i]);
-	
-}
-
 template<typename device_host_reduce_operator>
 __global__ void cuda_reduce(const float * vec, const size_t length, float * out, device_host_reduce_operator op)
 {
@@ -226,6 +199,32 @@ float reduce(const float * d_vec, int length, int num_threads_per_block, device_
 	return std::accumulate(h_out.cbegin() + 1, h_out.cend(), h_out[0], op);
 }
 
+//reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
+template<typename device_hist_operator>
+__global__ void cuda_hist(const float * d_vec, const size_t length_vec, unsigned int * d_hist, 
+const size_t num_bins, device_hist_operator op){
+
+	extern __shared__ unsigned int s_hist[];
+
+	const int tid = threadIdx.x;
+	
+	for(int i = tid; i < num_bins; i += blockDim.x)
+		s_hist[i] = 0;
+  
+	__syncthreads();
+
+	const int position = blockIdx.x * blockDim.x + threadIdx.x;
+	if(position < length_vec)
+	{
+		const int bin = op(d_vec[position]);
+		atomicAdd(&s_hist[bin], 1);
+	}
+	__syncthreads();
+
+	//for(int i = tid; i < num_bins; i += blockDim.x)
+	//	atomicAdd(&d_hist[i], s_hist[i]);
+	
+}
 
 void generate_histogram(const float* const d_vec,
 			const size_t length_vec,
@@ -291,7 +290,7 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
    min_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return min(a,b);}); 
    max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return max(a,b);}); 
 
-  const int K_hist = 64;
+  const int K_hist = 32;
   generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K_hist);
 
   scan(d_cdf, numBins, 0, [] __device__(unsigned int a, unsigned int b){return a + b;});
