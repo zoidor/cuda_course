@@ -101,9 +101,21 @@ int main(int argc, char **argv) {
 
   postProcess(output_file, h_outputImageRGBA);
 
+  GpuTimer timer2;
+  timer2.Start();
+  
   referenceCalculation(h_inputImageRGBA, h_outputImageRGBA,
                        numRows(), numCols(),
                        h_filter, filterWidth);
+
+  timer2.Stop();
+  err = printf("REF code ran in: %f msecs.\n", timer2.Elapsed());
+
+  if (err < 0) {
+    //Couldn't print! Probably the student closed stdout - bad news
+    std::cerr << "Couldn't print timing information! STDOUT Closed!" << std::endl;
+    exit(1);
+  }
 
   postProcess(reference_file, h_outputImageRGBA);
 
