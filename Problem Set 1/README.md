@@ -4,6 +4,7 @@ Instructions on how to invoke the program:
 	- cmake ..
 	- make
 - Now you can execute the program typing, inside the directory Make
+
  ./HW1 ../cinque_terre_small.jpg out.png ref.png  1  0.00022
 
 The two final numbers are to allow some differences between reference and CUDA-generated image. This is needed because we always find a difference of 1 in some pixels.
