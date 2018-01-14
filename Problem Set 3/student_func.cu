@@ -114,7 +114,19 @@ template<typename device_host_reduce_operator>
 static float reduce(const float * d_vec, int length, int num_threads_per_block, device_host_reduce_operator op);
 
 
-
+/**
+ * @brief Entry point function, provided by the HW. 
+ *
+ * This functions takes a log-luminance image as a buffer, and calculates its cdf.
+ * 
+ * @param d_logLuminance:    input, image buffer in device memory. Provided by the caller code
+ * @param d_cdf:             output, pre-allocated buffer for the cdf (cumulative distribution)
+ * @param min_logLum:        output, minimum element in d_logLuminance
+ * @param max_logLum:        output, maximum element in d_logLuminance
+ * @param numRows:     	     input, number of rows of the image
+ * @param numCols:           input, number of columns of the image 
+ * @param numBins:           input, number of bins in the cdf 
+ */
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   unsigned int* const d_cdf,
                                   float &min_logLum,
@@ -193,6 +205,8 @@ __global__ static void cuda_reduce(const float * vec, const size_t length, float
 		out[blockIdx.x] = data;
 	}
 }
+
+
 
 void generate_histogram(const float* const d_vec,
 			const size_t length_vec,
