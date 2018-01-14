@@ -109,7 +109,6 @@ __global__ static void cuda_scan_post_process(const unsigned int * in_vec, const
 template<typename device_host_reduce_operator>
 __global__ static void cuda_reduce(const float * vec, const size_t length, float * out, device_host_reduce_operator op);
 
-
 template<typename device_host_reduce_operator>
 static float reduce(const float * d_vec, int length, int num_threads_per_block, device_host_reduce_operator op);
 
@@ -248,7 +247,9 @@ const size_t num_bins, device_hist_operator op){
 	}
 }
 
-
+/*Idea: perform scan on every block (segment), keeping track of the tails of each segment. Then scan the array of the tails. 
+  For every block, add the scanned tail of the previous block. See  https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch39.html .
+  If the array of tails is too long to be scanned, do a recursion until a tails segment fits in a block. */
 template<typename operatorType>
 static void scan(unsigned int * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
 	
@@ -257,19 +258,20 @@ static void scan(unsigned int * const d_vec, const size_t length, unsigned int i
 	const int num_blocks = std::ceil(length / (double)K);
 	const int num_blocks2 = std::ceil(length / (double)K2);
 	unsigned int * d_out_vec = NULL;
-	unsigned int * d_segment_heads = NULL;
+	unsigned int * d_segment_tails = NULL;
 
 	const size_t vec_num_bytes = sizeof(unsigned int) * length;
 	checkCudaErrors(cudaMalloc(&d_out_vec, vec_num_bytes));
-	checkCudaErrors(cudaMalloc(&d_segment_heads, num_blocks * sizeof(unsigned int)));
+	checkCudaErrors(cudaMalloc(&d_segment_tails, num_blocks * sizeof(unsigned int)));
 
-	cuda_scan_in_block<<<num_blocks, K, sizeof(unsigned int) * K * 2>>>(d_vec, d_out_vec,  d_segment_heads, length, op, identity_element);
+	cuda_scan_in_block<<<num_blocks, K, sizeof(unsigned int) * K * 2>>>(d_vec, d_out_vec,  d_segment_tails, length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());		
 
 	if(num_blocks != 1)
-	{	//scan on segment heads
-		scan(d_segment_heads, num_blocks, identity_element, op);
-		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_segment_heads, d_vec, length, op, K);
+	{	
+		//scan on segment tails
+		scan(d_segment_tails, num_blocks, identity_element, op);
+		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_segment_tails, d_vec, length, op, K);
 		checkCudaErrors(cudaGetLastError());		
 	}
 	else 	//If we did everything in one block, we do not need to do the post process.
@@ -278,7 +280,7 @@ static void scan(unsigned int * const d_vec, const size_t length, unsigned int i
 	}
 
 	checkCudaErrors(cudaFree(d_out_vec));	
-	checkCudaErrors(cudaFree(d_segment_heads));	
+	checkCudaErrors(cudaFree(d_segment_tails));	
 }
 
 //reference: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch39.html
@@ -332,6 +334,6 @@ __global__ static void cuda_scan_post_process(const unsigned int * in_vec, const
 	//of blocks is relatively small hence this loop is not a problem. If the number of blocks is
 	//high, we generate an array of the segment tails and use scan on it. The recursion ends when
 	//we can execute the scan on a single block
-	out_vec[pos] = in_vec[pos] + in_vec_heads[idx_of_block_in_scan];
+	out_vec[pos] = op(in_vec[pos], in_vec_heads[idx_of_block_in_scan]);
 }
 
