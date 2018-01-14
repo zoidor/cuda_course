@@ -199,9 +199,10 @@ float reduce(const float * d_vec, int length, int num_threads_per_block, device_
 	return std::accumulate(h_out.cbegin() + 1, h_out.cend(), h_out[0], op);
 }
 
-//We tried to use: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
-//but this simpler version that uses global memory performs better in this case. We did some performance tuning and the
-//bottleneck was in the access to shared memory.
+//We tried to use: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/ ,
+//i.e. we tried to create a shared histogram in shared memory and then perform a reduction step to populate the global memory.
+//This simpler version that uses global memory performs better in this case. We did some performance tuning and the
+//bottleneck was in the access to shared memory, not in the reduction step that we chose.
 template<typename device_hist_operator>
 __global__ void cuda_hist(const float * d_vec, const size_t length_vec, unsigned int * d_hist, 
 const size_t num_bins, device_hist_operator op){
