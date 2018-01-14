@@ -291,7 +291,8 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
    min_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return min(a,b);}); 
    max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return max(a,b);}); 
 
-  generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K);
+  const int K_hist = 64;
+  generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K_hist);
 
   scan(d_cdf, numBins, 0, [] __device__(unsigned int a, unsigned int b){return a + b;});
 }
