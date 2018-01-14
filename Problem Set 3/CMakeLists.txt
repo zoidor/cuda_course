@@ -8,8 +8,15 @@
 
 cmake_minimum_required(VERSION 3.5)
 
+#to get all the commands so I am sure that we are passing O3 to both compilers
+set( CMAKE_VERBOSE_MAKEFILE on )
+
 set (CMAKE_CXX_STANDARD 11)
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++11 --expt-extended-lambda" )
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++11 --expt-extended-lambda -O3" )
+
+#gcc flags
+set(CMAKE_CXX_FLAGS "-O3")
+
 
 find_package( OpenCV REQUIRED )
 find_package(CUDA REQUIRED)
