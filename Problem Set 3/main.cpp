@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
   preProcess(&d_luminance, &d_cdf,
              &numRows, &numCols, &numBins, input_file);
 
-  GpuTimer timer;
+  GpuTimer timer, timer2;
   float min_logLum, max_logLum;
   min_logLum = 0.f;
   max_logLum = 1.f;
@@ -108,7 +108,20 @@ int main(int argc, char **argv) {
     max_logLum = std::max(h_luminance[i], max_logLum);
   }
 
+  timer2.Start();
+  
   referenceCalculation(h_luminance, h_cdf, numRows, numCols, numBins, min_logLum, max_logLum);
+
+  timer2.Stop();
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
+  err = printf("REF code ran in: %f msecs.\n", timer2.Elapsed());
+
+  if (err < 0) {
+    //Couldn't print! Probably the student closed stdout - bad news
+    std::cerr << "Couldn't print timing information! STDOUT Closed!" << std::endl;
+    exit(1);
+  }
+
 
   checkCudaErrors(cudaMemcpy(d_cdf, h_cdf, sizeof(unsigned int) * numBins, cudaMemcpyHostToDevice));
 
