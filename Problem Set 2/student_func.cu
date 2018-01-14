@@ -108,6 +108,7 @@ void gaussian_blur(const unsigned char* const inputChannel,
                    int numRows, int numCols,
                    const float* const filter, const int filterWidth)
 {
+  /* ------------ INSTRUCTIONS ------------*/
   // NOTE: Be sure to compute any intermediate results in floating point
   // before storing the final result as unsigned char.
 
