@@ -101,10 +101,10 @@ __global__ static void cuda_hist(const float * d_vec, const size_t length_vec, u
 const size_t num_bins, device_hist_operator op);
 
 template<typename device_scan_operator>
-__global__ static void cuda_scan_in_block(const unsigned int * d_in, unsigned int * d_out, unsigned int * d_out_segment_heads, const size_t length_vec, device_scan_operator op, unsigned int identity);
+__global__ static void cuda_scan_in_block(const unsigned int * d_in, unsigned int * d_out, const size_t length_vec, device_scan_operator op, unsigned int identity);
 
 template<typename device_scan_operator>
-__global__ static void cuda_scan_post_process(const unsigned int * in_vec, const unsigned int * in_vec_heads, unsigned int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size);
+__global__ static void cuda_scan_post_process(const unsigned int * in_vec, unsigned int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size);
 
 template<typename device_host_reduce_operator>
 __global__ static void cuda_reduce(const float * vec, const size_t length, float * out, device_host_reduce_operator op);
@@ -252,35 +252,21 @@ const size_t num_bins, device_hist_operator op){
   If the array of tails is too long to be scanned, do a recursion until a tails segment fits in a block. */
 template<typename operatorType>
 static void scan(unsigned int * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
-	
-	const int K = 64;
-	const int K2 = 128;
-	const int num_blocks = std::ceil(length / (double)K);
-	const int num_blocks2 = std::ceil(length / (double)K2);
+	int K = 64;
+	int K2 = 128;
+	int num_blocks = std::ceil(length / (double)K);
+	int num_blocks2 = std::ceil(length / (double)K2);
 	unsigned int * d_out_vec = NULL;
-	unsigned int * d_segment_tails = NULL;
 
-	const size_t vec_num_bytes = sizeof(unsigned int) * length;
-	checkCudaErrors(cudaMalloc(&d_out_vec, vec_num_bytes));
-	checkCudaErrors(cudaMalloc(&d_segment_tails, num_blocks * sizeof(unsigned int)));
+	checkCudaErrors(cudaMalloc(&d_out_vec, sizeof(unsigned int) * length));
 
-	cuda_scan_in_block<<<num_blocks, K, sizeof(unsigned int) * K * 2>>>(d_vec, d_out_vec,  d_segment_tails, length, op, identity_element);
+	cuda_scan_in_block<<<num_blocks, K, sizeof(unsigned int) * K * 2>>>(d_vec, d_out_vec, length, op, identity_element);
+	checkCudaErrors(cudaGetLastError());		
+	
+	cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_vec, length, op, K);
 	checkCudaErrors(cudaGetLastError());		
 
-	if(num_blocks != 1)
-	{	
-		//scan on segment tails
-		scan(d_segment_tails, num_blocks, identity_element, op);
-		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_segment_tails, d_vec, length, op, K);
-		checkCudaErrors(cudaGetLastError());		
-	}
-	else 	//If we did everything in one block, we do not need to do the post process.
-	{
-		cudaMemcpy(d_vec, d_out_vec, vec_num_bytes, cudaMemcpyDeviceToDevice);
-	}
-
 	checkCudaErrors(cudaFree(d_out_vec));	
-	checkCudaErrors(cudaFree(d_segment_tails));	
 }
 
 //reference: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch39.html
@@ -288,7 +274,7 @@ static void scan(unsigned int * const d_vec, const size_t length, unsigned int i
 //In a real scenario, we should implement both, check on various workloads and architectures. Maybe come up with an heuristic 
 //to switch between the two implementations at compile-time
 template<typename device_scan_operator>
-__global__ static void cuda_scan_in_block(const unsigned int * d_in, unsigned int * d_out, unsigned int * d_out_segment_heads, const size_t length_vec, device_scan_operator op, unsigned int identity)
+__global__ static void cuda_scan_in_block(const unsigned int * d_in, unsigned int * d_out, const size_t length_vec, device_scan_operator op, unsigned int identity)
 {
 	extern __shared__ unsigned int s_block_scan_mem[];
 	unsigned int * s_block_scan1 = s_block_scan_mem;
@@ -315,13 +301,10 @@ __global__ static void cuda_scan_in_block(const unsigned int * d_in, unsigned in
 	} 
 
 	d_out[pos] = s_block_scan1[tid];
-
-	if(tid ==  (blockDim.x - 1))
-		d_out_segment_heads[blockIdx.x] = s_block_scan1[tid];
 }
 
 template<typename device_scan_operator>
-__global__ static void cuda_scan_post_process(const unsigned int * in_vec, const unsigned int * in_vec_heads, unsigned int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size)
+__global__ static void cuda_scan_post_process(const unsigned int * in_vec, unsigned int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size)
 {
 	unsigned int pos = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -329,11 +312,16 @@ __global__ static void cuda_scan_post_process(const unsigned int * in_vec, const
 
 	//we want that the previous and current block sizes can be different
 	const int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
+	int last_el_of_prev_block = idx_of_block_in_scan * cuda_scan_in_block_b_size - 1;
 
 	//this is linear scan to put together the segment tails, I am assuming that the number 
 	//of blocks is relatively small hence this loop is not a problem. If the number of blocks is
 	//high, we generate an array of the segment tails and use scan on it. The recursion ends when
 	//we can execute the scan on a single block
-	out_vec[pos] = op(in_vec[pos], in_vec_heads[idx_of_block_in_scan]);
+	out_vec[pos] = in_vec[pos];
+	for(; last_el_of_prev_block > 0; last_el_of_prev_block -= cuda_scan_in_block_b_size)
+	{
+		out_vec[pos] += in_vec[last_el_of_prev_block];
+	}
 }
 
