@@ -106,12 +106,11 @@ __global__ static void cuda_scan_in_block(const unsigned int * d_in, unsigned in
 template<typename device_scan_operator>
 __global__ static void cuda_scan_post_process(const unsigned int * in_vec, unsigned int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size);
 
-template<typename T, typename device_host_reduce_operator>
-__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_operator op);
+template<typename T, typename device_host_reduce_op1, typename device_host_reduce_op2>
+static std::tuple<T, T> reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op1 op1, device_host_reduce_op2 op2);
 
-template<typename T, typename device_host_reduce_operator>
-static T reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_operator op);
-
+template<typename T, typename device_host_reduce_op1, typename device_host_reduce_op2>
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out1, T * out2,  device_host_reduce_op1 op1, device_host_reduce_op2 op2);
 
 /**
  * @brief Entry point function, provided by the HW. 
@@ -144,8 +143,10 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
    const int K = 128;
-   min_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return min(a,b);}); 
-   max_logLum = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return max(a,b);}); 
+
+   auto min_max = reduce(d_logLuminance, numRows * numCols, K, []__host__ __device__(float a, float b){return min(a,b);}, []__host__ __device__(float a, float b){return max(a,b);}); 
+   min_logLum = std::get<0>(min_max);   
+   max_logLum = std::get<1>(min_max);
 
   const int K_hist = 32;
   generate_histogram(d_logLuminance, numRows * numCols, d_cdf, numBins, min_logLum, max_logLum, K_hist);
@@ -156,52 +157,66 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
 /*Implementation of private functions*/
 
 
-template<typename T, typename device_host_reduce_operators>
-static T reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_operators op)
+template<typename T, typename device_host_reduce_op1, typename device_host_reduce_op2>
+static std::tuple<T, T> reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op1 op1, device_host_reduce_op2 op2)
 {	
 	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
 	if(num_blocks == 0) num_blocks = 1;
 
 
-	T * d_out = NULL;
-	checkCudaErrors(cudaMalloc(&d_out, sizeof(T) * num_blocks));
+	T * d_out1 = NULL;
+	T * d_out2 = NULL;
+	checkCudaErrors(cudaMalloc(&d_out1, sizeof(T) * num_blocks));
+	checkCudaErrors(cudaMalloc(&d_out2, sizeof(T) * num_blocks));
 
-	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, d_out, op);
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block * 2>>>(d_vec, length, d_out1, d_out2, op1, op2);
 	checkCudaErrors(cudaGetLastError());		
 
 	
-	std::vector<T> h_out(num_blocks); 
-	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
+	std::vector<T> h_out1(num_blocks); 
+	std::vector<T> h_out2(num_blocks); 
+	checkCudaErrors(cudaMemcpy(h_out1.data(), d_out1, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(h_out2.data(), d_out2, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
 
-	checkCudaErrors(cudaFree(d_out));
+	checkCudaErrors(cudaFree(d_out1));
+	checkCudaErrors(cudaFree(d_out2));
 	
-	return std::accumulate(h_out.cbegin() + 1, h_out.cend(), h_out[0], op);
+	return std::tuple<T, T>{std::accumulate(h_out1.cbegin() + 1, h_out1.cend(), h_out1[0], op1),
+		std::accumulate(h_out2.cbegin() + 1, h_out2.cend(), h_out2[0], op2)};
 }
 
 
-template<typename T, typename device_host_reduce_operators>
-__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_operators op)
+template<typename T, typename device_host_reduce_op1, typename device_host_reduce_op2>
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out1, T * out2,  device_host_reduce_op1 op1, device_host_reduce_op2 op2)
 {
 	extern __shared__ T s_vect[];
+	T * s_vect1  = s_vect;
+	T * s_vect2 = s_vect + blockDim.x;
+
 	const int tid = threadIdx.x;
 	const int position = blockIdx.x * blockDim.x + threadIdx.x;
 	
 	if(position > length) return;
 
 	//Copy into shared memory
-	s_vect[tid] = vec[position];
+	s_vect1[tid] = vec[position];
+	s_vect2[tid] = vec[position];
 	__syncthreads();	
 
 	for(int s = blockDim.x / 2; s > 0; s /= 2)
 	{
 		if(tid < s)
-			s_vect[tid] = op(s_vect[tid], s_vect[tid + s]);
+		{
+			s_vect1[tid] = op1(s_vect1[tid], s_vect1[tid + s]);
+			s_vect2[tid] = op2(s_vect2[tid], s_vect2[tid + s]);
+		}
 		__syncthreads();	
 	}
 
 	if(tid == 0)
-	{	const T data = s_vect[0];
-		out[blockIdx.x] = data;
+	{	
+		out1[blockIdx.x] = s_vect1[0];
+		out2[blockIdx.x] = s_vect2[0];
 	}
 }
 
