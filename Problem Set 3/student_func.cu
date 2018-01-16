@@ -106,11 +106,11 @@ __global__ static void cuda_scan_in_block(const unsigned int * d_in, unsigned in
 template<typename device_scan_operator>
 __global__ static void cuda_scan_post_process(const unsigned int * in_vec, unsigned int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size);
 
-template<typename device_host_reduce_operator>
-__global__ static void cuda_reduce(const float * vec, const size_t length, float * out, device_host_reduce_operator op);
+template<typename T, typename device_host_reduce_operator>
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_operator op);
 
-template<typename device_host_reduce_operator>
-static float reduce(const float * d_vec, int length, int num_threads_per_block, device_host_reduce_operator op);
+template<typename T, typename device_host_reduce_operator>
+static T reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_operator op);
 
 
 /**
@@ -156,22 +156,22 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
 /*Implementation of private functions*/
 
 
-template<typename device_host_reduce_operator>
-static float reduce(const float * d_vec, int length, int num_threads_per_block, device_host_reduce_operator op)
+template<typename T, typename device_host_reduce_operators>
+static T reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_operators op)
 {	
 	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
 	if(num_blocks == 0) num_blocks = 1;
 
 
-	float * d_out = NULL;
-	checkCudaErrors(cudaMalloc(&d_out, sizeof(float) * num_blocks));
+	T * d_out = NULL;
+	checkCudaErrors(cudaMalloc(&d_out, sizeof(T) * num_blocks));
 
-	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(float) * num_threads_per_block>>>(d_vec, length, d_out, op);
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, d_out, op);
 	checkCudaErrors(cudaGetLastError());		
 
 	
-	std::vector<float> h_out(num_blocks); 
-	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(float), cudaMemcpyDeviceToHost));
+	std::vector<T> h_out(num_blocks); 
+	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
 
 	checkCudaErrors(cudaFree(d_out));
 	
@@ -179,10 +179,10 @@ static float reduce(const float * d_vec, int length, int num_threads_per_block, 
 }
 
 
-template<typename device_host_reduce_operator>
-__global__ static void cuda_reduce(const float * vec, const size_t length, float * out, device_host_reduce_operator op)
+template<typename T, typename device_host_reduce_operators>
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_operators op)
 {
-	extern __shared__ float s_vect[];
+	extern __shared__ T s_vect[];
 	const int tid = threadIdx.x;
 	const int position = blockIdx.x * blockDim.x + threadIdx.x;
 	
@@ -200,7 +200,7 @@ __global__ static void cuda_reduce(const float * vec, const size_t length, float
 	}
 
 	if(tid == 0)
-	{	const float data = s_vect[0];
+	{	const T data = s_vect[0];
 		out[blockIdx.x] = data;
 	}
 }
