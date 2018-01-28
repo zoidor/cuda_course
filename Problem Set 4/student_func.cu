@@ -43,7 +43,7 @@
 
  */
 
-
+/********************Forward Declarations ***********************/
 
 template<typename T, typename device_host_reduce_op>
 __global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_op op);
@@ -52,206 +52,34 @@ template<typename T, typename device_host_reduce_op>
 static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op);
 
 
-static size_t bytes;
-
-template<typename T>
-class CudaBuffer
-{
-public:
-
-
-	CudaBuffer() : CudaBuffer(0){}
-
-	CudaBuffer(const size_t num_els) : m_num_els(num_els)
-	{
-		if(num_els != 0)
-			checkCudaErrors(cudaMalloc(&m_d_buffer, sizeof(T) * num_els)); 	
-		 bytes += sizeof(T) * num_els;
-	}
-	
-
-	~CudaBuffer()
-	{	
-		if(m_d_buffer == NULL || m_num_els == 0) return;
-
-		bytes -= sizeof(T) * m_num_els;
-		checkCudaErrors(cudaFree(m_d_buffer));
-		m_d_buffer = NULL;
-		m_num_els = 0;
-	}
-	
-
-	T* getDeviceBuffer()const {return m_d_buffer;}
-	size_t getNumEls()const {return m_num_els;}
-
-	CudaBuffer(const CudaBuffer<T>&) = delete; 
-	CudaBuffer<T>& operator=(const CudaBuffer<T>&) = delete; 
-
-	CudaBuffer(CudaBuffer<T>&& other)
-	{
-		std::swap(other.m_d_buffer, m_d_buffer);
-		std::swap(other.m_num_els, m_num_els);
-	}
-
-	CudaBuffer<T>& operator=(CudaBuffer<T>&& other)
-	{	
-		if(this == &other) return *this;
-
-		this->~CudaBuffer<T>();
-		std::swap(other.m_d_buffer, m_d_buffer);
-		std::swap(other.m_num_els, m_num_els);
-		return *this;
-	}
-
-private:
-	T* m_d_buffer = NULL;
-	size_t m_num_els = 0;
-};
-
-template<typename T>
-class CudaBufferPool
-{
-	public:
-		CudaBufferPool(const size_t num_elems_max) : m_max_els(num_elems_max){}
-		
-		void add(CudaBuffer<T> other)
-		{
-			if(other.getNumEls() == 0) return;
-
-			if(buffers.size() >= m_max_els) return;
-						
-			buffers.emplace_back(std::move(other));
-		}
-
-		CudaBuffer<T> get(const size_t sz)
-		{
-			auto it = std::find_if(buffers.begin(), buffers.end(), [sz](const CudaBuffer<T>& el){return el.getNumEls() == sz;});
-			if(it == buffers.end())
-				return CudaBuffer<T>(sz);
-
-			auto to_ret = std::move(*it);
-			buffers.erase(it);
-			return to_ret;
-		}
-
-	private:
-		std::vector<CudaBuffer<T>> buffers;
-		size_t m_max_els;
-};
-
-
+template<typename device_scan_operator>
+__global__ static void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity);
 
 template<typename device_scan_operator>
-__global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity)
-{
-	extern __shared__ size_t s_block_scan_mem[];
-	size_t * s_block_scan1 = s_block_scan_mem;
-	size_t * s_block_scan2 = s_block_scan_mem + blockDim.x;
-	const int tid = threadIdx.x;
-	const int pos = tid + blockDim.x * blockIdx.x;
-
-	if(pos >= length_vec) return;
-
-	s_block_scan1[tid] = pos == 0 ? identity : d_in[pos -1];
-	__syncthreads();
-
-	for(int shift = 1; shift <= blockDim.x; shift *= 2)
-	{
-		const int prev = tid - shift;
-		if(prev >= 0)
-			s_block_scan2[tid] = op(s_block_scan1[tid], s_block_scan1[prev]);
-		else
-			s_block_scan2[tid] = s_block_scan1[tid];
-		__syncthreads();
-		size_t * tmp = s_block_scan1;
-		s_block_scan1 = s_block_scan2;
-		s_block_scan2 = tmp;
-	} 
-
-	d_out[pos] = s_block_scan1[tid];
-
-	if(d_out_tails != NULL && tid == blockDim.x - 1) 
-	{
-		d_out_tails[blockIdx.x] =  s_block_scan1[tid];
-	}
-}
-
-template<typename device_scan_operator>
-__global__ void cuda_scan_post_process(const size_t * in_vec, const size_t * in_vec_tails, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const size_t start)
-{
-	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
-
-	if(pos >= length_vec) 
-	{
-		return;
-	}
-
-	//we want to allow the previous and current block sizes to be different
-	const int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
-	size_t el = op(in_vec[pos], in_vec_tails[idx_of_block_in_scan]);
-	out_vec[pos] = op(el, start);
-}
-
+__global__ static void cuda_scan_post_process(const size_t * in_vec, const size_t * in_vec_tails, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const size_t start);
 
 template<typename operatorType>
-void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element){
-
-	static CudaBufferPool<size_t> pool(20);
-	const int K = 256;
-	const int K2 = 1024;
-	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
-	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
-
-
-	CudaBuffer<size_t> d_out_vect(pool.get(length));
-	CudaBuffer<size_t> d_out_vec_tails(pool.get(num_blocks));
-	
-	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
-	checkCudaErrors(cudaGetLastError());
-
-	if(num_blocks == 1)
-	{
-		cudaMemcpy(d_vec, d_out_vect.getDeviceBuffer(), length * sizeof(size_t), cudaMemcpyDeviceToDevice);
-	}
-	else
-	{
-		scan(d_out_vec_tails.getDeviceBuffer(), num_blocks, identity_element, op, identity_element);
-		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K, start_element);
-	}
-
-	checkCudaErrors(cudaGetLastError());		
-
-	pool.add(std::move(d_out_vect));
-	pool.add(std::move(d_out_vec_tails));
-}
-
+static void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element);
 
 template<typename OpType>
-__global__ void cuda_map2(const unsigned int * vals, size_t * out_true, size_t * out_false, size_t numElems, OpType op)
-{
-	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
-	if(pos >= numElems) return;
-	
-	unsigned int is_bit_active = op(vals[pos]);
-	out_true[pos] = is_bit_active;
-	out_false[pos] = !is_bit_active;
-}
+__global__ static void cuda_map2(const unsigned int * vals, size_t * out_true, size_t * out_false, size_t numElems, OpType op);
+
+__global__ static void scatter2(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length);
+
+/* Public function */
 
 
-__global__ void scatter2(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length)
-{
-	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
-	if(pos >= length) return;
-
-	size_t scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
-	
-	if(scatter_pos >= length) return;
-
-	out1[scatter_pos] = in1[pos]; 
-	out2[scatter_pos] = in2[pos]; 
-}  
-
-
+/**
+ * @brief Entry point function, provided by the HW. 
+ *
+ * This functions takes a two arrays and sort them in the two output arrays according to the values of the first input array.
+ * 
+ * @param d_inputVals:  input, values the sorting is going to be done on
+ * @param d_inputPos:   input, positions to be sorted according to the corresponding element in d_inputVals
+ * @param d_outputVals: output, sorted d_inputVals
+ * @param d_outputPos:  output, sorted d_outputPos according to the corresponding element in d_inputVals
+ * @param numElems:    	input, number of elements
+ */
 void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
                unsigned int* const d_outputVals,
@@ -340,6 +168,8 @@ void your_sort(unsigned int* const d_inputVals,
 }
 
 
+/*Private functions implementation*/
+
 template<typename T, typename device_host_reduce_op>
 static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op)
 {	
@@ -390,4 +220,201 @@ __global__ static void cuda_reduce(const T * vec, const size_t length, T * out, 
 		out[blockIdx.x] = s_vect[0];
 	}
 }
+
+
+template<typename T>
+class CudaBuffer
+{
+public:
+
+	CudaBuffer() : CudaBuffer(0){}
+
+	CudaBuffer(const size_t num_els) : m_num_els(num_els)
+	{
+		if(num_els != 0)
+			checkCudaErrors(cudaMalloc(&m_d_buffer, sizeof(T) * num_els)); 	
+	}
+	
+
+	~CudaBuffer()
+	{	
+		if(m_d_buffer == NULL || m_num_els == 0) return;
+
+		checkCudaErrors(cudaFree(m_d_buffer));
+		m_d_buffer = NULL;
+		m_num_els = 0;
+	}
+	
+
+	T* getDeviceBuffer()const {return m_d_buffer;}
+	size_t getNumEls()const {return m_num_els;}
+
+	CudaBuffer(const CudaBuffer<T>&) = delete; 
+	CudaBuffer<T>& operator=(const CudaBuffer<T>&) = delete; 
+
+	CudaBuffer(CudaBuffer<T>&& other)
+	{
+		std::swap(other.m_d_buffer, m_d_buffer);
+		std::swap(other.m_num_els, m_num_els);
+	}
+
+	CudaBuffer<T>& operator=(CudaBuffer<T>&& other)
+	{	
+		if(this == &other) return *this;
+
+		this->~CudaBuffer<T>();
+		std::swap(other.m_d_buffer, m_d_buffer);
+		std::swap(other.m_num_els, m_num_els);
+		return *this;
+	}
+
+private:
+	T* m_d_buffer = NULL;
+	size_t m_num_els = 0;
+};
+
+template<typename T>
+class CudaBufferPool
+{
+	public:
+		CudaBufferPool(const size_t num_elems_max) : m_max_els(num_elems_max){}
+		
+		void add(CudaBuffer<T> other)
+		{
+			if(other.getNumEls() == 0) return;
+
+			if(buffers.size() >= m_max_els) return;
+						
+			buffers.emplace_back(std::move(other));
+		}
+
+		CudaBuffer<T> get(const size_t sz)
+		{
+			auto it = std::find_if(buffers.begin(), buffers.end(), [sz](const CudaBuffer<T>& el){return el.getNumEls() == sz;});
+			if(it == buffers.end())
+				return CudaBuffer<T>(sz);
+
+			auto to_ret = std::move(*it);
+			buffers.erase(it);
+			return to_ret;
+		}
+
+	private:
+		std::vector<CudaBuffer<T>> buffers;
+		size_t m_max_els;
+};
+
+
+
+template<typename device_scan_operator>
+__global__ static void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity)
+{
+	extern __shared__ size_t s_block_scan_mem[];
+	size_t * s_block_scan1 = s_block_scan_mem;
+	size_t * s_block_scan2 = s_block_scan_mem + blockDim.x;
+	const int tid = threadIdx.x;
+	const int pos = tid + blockDim.x * blockIdx.x;
+
+	if(pos >= length_vec) return;
+
+	s_block_scan1[tid] = pos == 0 ? identity : d_in[pos -1];
+	__syncthreads();
+
+	for(int shift = 1; shift <= blockDim.x; shift *= 2)
+	{
+		const int prev = tid - shift;
+		if(prev >= 0)
+			s_block_scan2[tid] = op(s_block_scan1[tid], s_block_scan1[prev]);
+		else
+			s_block_scan2[tid] = s_block_scan1[tid];
+		__syncthreads();
+		size_t * tmp = s_block_scan1;
+		s_block_scan1 = s_block_scan2;
+		s_block_scan2 = tmp;
+	} 
+
+	d_out[pos] = s_block_scan1[tid];
+
+	if(d_out_tails != NULL && tid == blockDim.x - 1) 
+	{
+		d_out_tails[blockIdx.x] =  s_block_scan1[tid];
+	}
+}
+
+template<typename device_scan_operator>
+__global__ static  void cuda_scan_post_process(const size_t * in_vec, const size_t * in_vec_tails, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const size_t start)
+{
+	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if(pos >= length_vec) 
+	{
+		return;
+	}
+
+	//we want to allow the previous and current block sizes to be different
+	const int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
+	size_t el = op(in_vec[pos], in_vec_tails[idx_of_block_in_scan]);
+	out_vec[pos] = op(el, start);
+}
+
+
+template<typename operatorType>
+static void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element)
+{
+
+	static CudaBufferPool<size_t> pool(20);
+	const int K = 256;
+	const int K2 = 1024;
+	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
+	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
+
+
+	CudaBuffer<size_t> d_out_vect(pool.get(length));
+	CudaBuffer<size_t> d_out_vec_tails(pool.get(num_blocks));
+	
+	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
+	checkCudaErrors(cudaGetLastError());
+
+	if(num_blocks == 1)
+	{
+		cudaMemcpy(d_vec, d_out_vect.getDeviceBuffer(), length * sizeof(size_t), cudaMemcpyDeviceToDevice);
+	}
+	else
+	{
+		scan(d_out_vec_tails.getDeviceBuffer(), num_blocks, identity_element, op, identity_element);
+		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K, start_element);
+	}
+
+	checkCudaErrors(cudaGetLastError());		
+
+	pool.add(std::move(d_out_vect));
+	pool.add(std::move(d_out_vec_tails));
+}
+
+
+template<typename OpType>
+__global__ static void cuda_map2(const unsigned int * vals, size_t * out_true, size_t * out_false, size_t numElems, OpType op)
+{
+	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
+	if(pos >= numElems) return;
+	
+	unsigned int is_bit_active = op(vals[pos]);
+	out_true[pos] = is_bit_active;
+	out_false[pos] = !is_bit_active;
+}
+
+
+__global__ static void scatter2(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length)
+{
+	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
+	if(pos >= length) return;
+
+	size_t scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
+	
+	if(scatter_pos >= length) return;
+
+	out1[scatter_pos] = in1[pos]; 
+	out2[scatter_pos] = in2[pos]; 
+}  
+
 
