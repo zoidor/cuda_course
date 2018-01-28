@@ -198,7 +198,7 @@ void scan(size_t * const d_vec, const size_t length, unsigned int identity_eleme
 	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
 	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
 
-	CudaBuffer<size_t> d_out_vec_tails(num_blocks);
+	CudaBuffer<size_t> d_out_vec_tails = pool.get(num_blocks);
 	CudaBuffer<size_t> d_out_vect = pool.get(length);
 	
 	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
