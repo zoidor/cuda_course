@@ -74,12 +74,12 @@ const unsigned char mask_region_interior = 1;
 const unsigned char mask_region_border = 3;
 
 /*----------------- Private Functions forward declaration -----------------*/
+
 template<typename device_scan_operator>
 __global__ static void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity);
 
 template<typename device_scan_operator>
 __global__ static  void cuda_scan_post_process(const size_t * in_vec, const size_t * in_vec_tails, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const size_t start);
-
 
 template<typename operatorType>
 static void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element);
@@ -88,7 +88,6 @@ template<typename T1, typename T2>
 void copy(T1 * dest, const T2 * source, std::size_t sz);
 
 __global__ void cuda_compact(size_t * x_arr, size_t * y_arr, size_t * mask_scan, const size_t length_mask_compacted, const unsigned char * mask, const size_t sz_x, const size_t sz_y);
-
 
 template<typename OType, typename IType, typename OperatorType>
 __global__ void map(OType * out, const  IType * in, const size_t sz, OperatorType op);
@@ -108,12 +107,8 @@ void calculate_interior_border(const unsigned char * in_mask, unsigned char * ou
 
 __device__ void perform_j_neigh(const float * b1, const unsigned char * source, const unsigned char * destination, const unsigned char *mask, const size_t sz_x, const size_t sz_y, const int x, const int y, const int dx, const int dy, float& sum1, float& sum2, const size_t pos);
 
-
-
 __global__ void perform_jacobi_iteration_cuda(const float * b1, float * b2, const unsigned char * source, const unsigned char * destination, 
 const unsigned char *mask, const size_t sz_x, const size_t sz_y, const size_t * els_x_coords, const size_t * els_y_coords, const size_t numEls);
-
-
 
 void perform_jacobi_iteration(const float * b1, float * b2, const unsigned char * source, const unsigned char *destination, 
 				const unsigned char *mask, const Positions& pts, const size_t sz_x, const size_t sz_y);
@@ -183,7 +178,19 @@ class Positions
 		size_t m_length = 0;
 };
 
+/**
+ * @brief Entry point function, provided by the HW. 
+ *
+ * This functions blend a source image with a destination image and fills an output buffer h_blendedImg
+ * 
+ * @param h_sourceImg:   input, source image (element to paste in the destination image), in host memory
+ * @param numRowsSource: input, number of rows of the three images (source, destination, blended)
+ * @param numColsSource: input, number of columns of the three images (source, destination, blended)
+ * @param h_destImg:     input, destination image, in host memory
+ * @param h_blendedImg:  output, blended image, in host memory
 
+
+ */
 void your_blend(const uchar4* const h_sourceImg,  //IN
                 const size_t numRowsSource, const size_t numColsSource,
                 const uchar4* const h_destImg, //IN
@@ -225,7 +232,7 @@ void your_blend(const uchar4* const h_sourceImg,  //IN
 	calculate_interior_border(d_mask, d_refined_mask, numColsSource, numRowsSource);
 	checkCudaErrors(cudaFree(d_mask));
 
-
+	//Obtains an array with all the elements in the "interior" used to launch only threads that actually do some work
 	Positions pts = compact_interior_border(d_refined_mask, numColsSource, numRowsSource);
 
 /*
