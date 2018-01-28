@@ -4,6 +4,7 @@
 #include "utils.h"
 #include <thrust/host_vector.h>
 #include <map>
+#include <algorithm>
 /* Red Eye Removal
    ===============
    
@@ -42,31 +43,37 @@
 
  */
 
+static size_t bytes;
+
 template<typename T>
 class CudaBuffer
 {
 public:
+
+
 	CudaBuffer() : CudaBuffer(0){}
 
 	CudaBuffer(const size_t num_els) : m_num_els(num_els)
 	{
 		if(num_els != 0)
 			checkCudaErrors(cudaMalloc(&m_d_buffer, sizeof(T) * num_els)); 	
+		 bytes += sizeof(T) * num_els;
 	}
 	
 
 	~CudaBuffer()
 	{	
-		if(m_d_buffer == NULL) return;
+		if(m_d_buffer == NULL || m_num_els == 0) return;
 
+		bytes -= sizeof(T) * m_num_els;
 		checkCudaErrors(cudaFree(m_d_buffer));
 		m_d_buffer = NULL;
 		m_num_els = 0;
 	}
 	
 
-	T* getDeviceBuffer(){return m_d_buffer;}
-	size_t getNumEls(){return m_num_els;}
+	T* getDeviceBuffer()const {return m_d_buffer;}
+	size_t getNumEls()const {return m_num_els;}
 
 	CudaBuffer(const CudaBuffer<T>&) = delete; 
 	CudaBuffer<T>& operator=(const CudaBuffer<T>&) = delete; 
@@ -81,7 +88,7 @@ public:
 	{	
 		if(this == &other) return *this;
 
-		this->~CudaBuffer();
+		this->~CudaBuffer<T>();
 		std::swap(other.m_d_buffer, m_d_buffer);
 		std::swap(other.m_num_els, m_num_els);
 		return *this;
@@ -100,32 +107,30 @@ class CudaBufferPool
 		
 		void add(CudaBuffer<T> other)
 		{
+			if(other.getNumEls() == 0) return;
+
 			if(buffers.size() >= m_max_els) return;
-			
-			const size_t key = other.getNumEls();
-
-			if(key == 0) return;
-			
-			if(buffers.count(key) > 0) return;
-
-			buffers[key] = std::move(other); 
+						
+			buffers.emplace_back(std::move(other));
 		}
 
 		CudaBuffer<T> get(const size_t sz)
 		{
-			auto it = buffers.find(sz);
-			if(it == buffers.cend())
+			auto it = std::find_if(buffers.begin(), buffers.end(), [sz](const CudaBuffer<T>& el){return el.getNumEls() == sz;});
+			if(it == buffers.end())
 				return CudaBuffer<T>(sz);
 
-			auto to_ret = std::move(it->second);
+			auto to_ret = std::move(*it);
 			buffers.erase(it);
 			return to_ret;
 		}
 
 	private:
-		std::map<size_t, CudaBuffer<T>> buffers;
+		std::vector<CudaBuffer<T>> buffers;
 		size_t m_max_els;
 };
+
+
 
 template<typename device_scan_operator>
 __global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity)
@@ -178,35 +183,25 @@ __global__ void cuda_scan_post_process(const size_t * in_vec, const size_t * in_
 	out_vec[pos] = op(el, start);
 }
 
-void print(const size_t * d_vec, const size_t length)
-{
-	std::vector<size_t> toP(length);
-	cudaMemcpy(toP.data(), d_vec, sizeof(size_t) * length, cudaMemcpyDeviceToHost);
-	for(auto el : toP)	
-	{
-		printf("%i ", (int)el);
-	}
-	printf("\n--------------- %i *------\n", (int)length);
-}
 
 template<typename operatorType>
 void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element){
 
-	static CudaBufferPool<size_t> pool(5);
-	const int K = 1024;
+	static CudaBufferPool<size_t> pool(20);
+	const int K = 256;
 	const int K2 = 1024;
 	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
 	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
 
-	CudaBuffer<size_t> d_out_vec_tails = pool.get(num_blocks);
-	CudaBuffer<size_t> d_out_vect = pool.get(length);
+
+	CudaBuffer<size_t> d_out_vect(pool.get(length));
+	CudaBuffer<size_t> d_out_vec_tails(pool.get(num_blocks));
 	
 	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());
 
 	if(num_blocks == 1)
 	{
-
 		cudaMemcpy(d_vec, d_out_vect.getDeviceBuffer(), length * sizeof(size_t), cudaMemcpyDeviceToDevice);
 	}
 	else
@@ -253,7 +248,6 @@ void your_sort(unsigned int* const d_inputVals,
                size_t numElems)
 { 
 
-	//numElems = 32;
  	int numbits = sizeof(unsigned int) * 8;
 	
 	unsigned int * vals1 = NULL;
