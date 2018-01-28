@@ -238,7 +238,7 @@ __global__ void cuda_map2(const unsigned int * vals, size_t * out_true, size_t *
 }
 
 
-__global__ void scatter(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in, unsigned int * out, const size_t length)
+__global__ void scatter2(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length)
 {
 	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 	if(pos >= length) return;
@@ -247,7 +247,8 @@ __global__ void scatter(const size_t * scatter_0, const size_t * scatter_1, cons
 	
 	if(scatter_pos >= length) return;
 
-	out[scatter_pos] = in[pos]; 
+	out1[scatter_pos] = in1[pos]; 
+	out2[scatter_pos] = in2[pos]; 
 }  
 
 
@@ -283,7 +284,7 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaMemcpy(vals1, d_inputVals, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 	checkCudaErrors(cudaMemcpy(pos1, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
-	const int K = 512;
+	const int K = 1024;
 	const int num_blocks = (int)ceil(numElems / (double)K);
 
 	auto scan_op = [] __device__ (size_t el1, size_t el2) -> size_t {return el1 + el2;};
@@ -293,14 +294,12 @@ void your_sort(unsigned int* const d_inputVals,
 	
 	const size_t max_el = reduce(d_inputVals, numElems, K, max_op);
 	const size_t numbits = std::ceil(log2((double)max_el));
-
 	for(int i = 0; i < numbits; ++i)
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> unsigned int
 			  {
 				return (unsigned int)((el & mask) == 0);
 			  };
-
 		
 		cuda_map2<<<num_blocks, K>>>(vals1, scatter_loc0, scatter_loc1, numElems, mask_op_0);
 		checkCudaErrors(cudaGetLastError());		
@@ -310,7 +309,6 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc0, numElems, 0, scan_op, 0);
 		checkCudaErrors(cudaGetLastError());		
 		
-
 		size_t start1;
 		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
 
@@ -321,8 +319,7 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc1, numElems, 0, scan_op, start1);
 		checkCudaErrors(cudaGetLastError());		
 				
-		scatter<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, numElems);
-		scatter<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, pos1, pos2, numElems);
+		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
 
 		std::swap(vals1, vals2);
 		std::swap(pos1, pos2);
