@@ -285,6 +285,7 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaMemcpy(pos1, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
 	const int K = 1024;
+	const int K_reduce = 512;
 	const int num_blocks = (int)ceil(numElems / (double)K);
 
 	auto scan_op = [] __device__ (size_t el1, size_t el2) -> size_t {return el1 + el2;};
@@ -292,7 +293,7 @@ void your_sort(unsigned int* const d_inputVals,
 
 	auto max_op = []__device__ __host__ (size_t el1, size_t el2){return max(el1, el2);};
 	
-	const size_t max_el = reduce(d_inputVals, numElems, K, max_op);
+	const size_t max_el = reduce(d_inputVals, numElems, K_reduce, max_op);
 	const size_t numbits = std::ceil(log2((double)max_el));
 	for(int i = 0; i < numbits; ++i)
 	{	unsigned int mask = pow(2, i);
