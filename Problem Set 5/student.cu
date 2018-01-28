@@ -27,6 +27,7 @@
 
 #include "utils.h"
 
+/* ------------ Forward declarations ------------ */
 __global__
 static void cuda_hist_naive(const unsigned int* const vals, //INPUT
                	     unsigned int* const histo,      //OUPUT
@@ -39,6 +40,17 @@ static void cuda_hist_naive(const unsigned int* const vals, //INPUT
                      int numVals, 
 	       	     int num_bins);
 
+
+/**
+ * @brief Entry point function, provided by the HW. 
+ *
+ * This functions takes a log-luminance image as a buffer, and calculates its cdf.
+ * 
+ * @param d_vals:    input, buffer in device memory. Provided by the caller code. Contains the data the histogram will be calculated on
+ * @param d_histo:   output, pre-allocated buffer for the histogram (assumed of length numBins)
+ * @param numElems:  input, number of elements in d_vals 
+ * @param numBins:   input, number of bins in the histogram d_histo
+ */
 void computeHistogram(const unsigned int* const d_vals, //INPUT
                       unsigned int* const d_histo,      //OUTPUT
                       const unsigned int numBins,
@@ -54,6 +66,7 @@ void computeHistogram(const unsigned int* const d_vals, //INPUT
    	checkCudaErrors(cudaGetLastError());
 }
 
+/* ------------ Implementation of private functions ------------ */
 
 //reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
 __global__
