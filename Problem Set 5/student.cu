@@ -29,7 +29,7 @@
 
 /* ------------ Forward declarations ------------ */
 __global__
-static void cuda_hist_naive(const unsigned int* const vals, //INPUT
+static void cuda_hist(const unsigned int* const vals, //INPUT
                	     unsigned int* const histo,      //OUPUT
                      int numVals, 
 	       	     int num_bins);
