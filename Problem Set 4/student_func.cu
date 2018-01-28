@@ -3,7 +3,7 @@
 
 #include "utils.h"
 #include <thrust/host_vector.h>
-
+#include <map>
 /* Red Eye Removal
    ===============
    
@@ -42,7 +42,91 @@
 
  */
 
-//TODO: investigate wether the kernels can be reduced. Investigate whether block size can be used to improve performance. 
+template<typename T>
+class CudaBuffer
+{
+public:
+	CudaBuffer() : CudaBuffer(0){}
+
+	CudaBuffer(const size_t num_els) : m_num_els(num_els)
+	{
+		if(num_els != 0)
+			checkCudaErrors(cudaMalloc(&m_d_buffer, sizeof(T) * num_els)); 	
+	}
+	
+
+	~CudaBuffer()
+	{	
+		if(m_d_buffer == NULL) return;
+
+		checkCudaErrors(cudaFree(m_d_buffer));
+		m_d_buffer = NULL;
+		m_num_els = 0;
+	}
+	
+
+	T* getDeviceBuffer(){return m_d_buffer;}
+	size_t getNumEls(){return m_num_els;}
+
+	CudaBuffer(const CudaBuffer<T>&) = delete; 
+	CudaBuffer<T>& operator=(const CudaBuffer<T>&) = delete; 
+
+	CudaBuffer(CudaBuffer<T>&& other)
+	{
+		std::swap(other.m_d_buffer, m_d_buffer);
+		std::swap(other.m_num_els, m_num_els);
+	}
+
+	CudaBuffer<T>& operator=(CudaBuffer<T>&& other)
+	{	
+		if(this == &other) return *this;
+
+		this->~CudaBuffer();
+		std::swap(other.m_d_buffer, m_d_buffer);
+		std::swap(other.m_num_els, m_num_els);
+		return *this;
+	}
+
+private:
+	T* m_d_buffer = NULL;
+	size_t m_num_els = 0;
+};
+
+template<typename T>
+class CudaBufferPool
+{
+	public:
+		CudaBufferPool(const size_t num_elems_max) : m_max_els(num_elems_max){}
+		
+		void add(CudaBuffer<T> other)
+		{
+			if(buffers.size() >= m_max_els) return;
+			
+			const size_t key = other.getNumEls();
+
+			if(key == 0) return;
+			
+			if(buffers.count(key) > 0) return;
+
+			buffers[key] = std::move(other); 
+		}
+
+		CudaBuffer<T> get(const size_t sz)
+		{
+			auto it = buffers.find(sz);
+			if(it == buffers.cend())
+				return CudaBuffer<T>(sz);
+
+			auto to_ret = std::move(it->second);
+			buffers.erase(it);
+			return to_ret;
+		}
+
+	private:
+		std::map<size_t, CudaBuffer<T>> buffers;
+		size_t m_max_els;
+};
+
 template<typename device_scan_operator>
 __global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity)
 {
@@ -72,7 +156,7 @@ __global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t *
 
 	d_out[pos] = s_block_scan1[tid];
 
-	if(tid == blockDim.x - 1) 
+	if(d_out_tails != NULL && tid == blockDim.x - 1) 
 	{
 		d_out_tails[blockIdx.x] =  s_block_scan1[tid];
 	}
@@ -107,33 +191,34 @@ void print(const size_t * d_vec, const size_t length)
 
 template<typename operatorType>
 void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element){
+
+	static CudaBufferPool<size_t> pool(5);
 	const int K = 1024;
 	const int K2 = 1024;
 	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
 	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
-	size_t * d_out_vec = NULL;
-	size_t * d_out_vec_tails = NULL;
 
-	checkCudaErrors(cudaMalloc(&d_out_vec, sizeof(size_t) * length));
-	checkCudaErrors(cudaMalloc(&d_out_vec_tails, sizeof(size_t) * num_blocks));
-	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vec, d_out_vec_tails, length, op, identity_element);
+	CudaBuffer<size_t> d_out_vec_tails(num_blocks);
+	CudaBuffer<size_t> d_out_vect = pool.get(length);
+	
+	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());
 
 	if(num_blocks == 1)
 	{
 
-		cudaMemcpy(d_vec, d_out_vec, length * sizeof(size_t), cudaMemcpyDeviceToDevice);
+		cudaMemcpy(d_vec, d_out_vect.getDeviceBuffer(), length * sizeof(size_t), cudaMemcpyDeviceToDevice);
 	}
 	else
 	{
-		scan(d_out_vec_tails, num_blocks, identity_element, op, identity_element);
-		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_out_vec_tails, d_vec, length, op, K, start_element);
+		scan(d_out_vec_tails.getDeviceBuffer(), num_blocks, identity_element, op, identity_element);
+		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K, start_element);
 	}
 
 	checkCudaErrors(cudaGetLastError());		
 
-	checkCudaErrors(cudaFree(d_out_vec));	
-	checkCudaErrors(cudaFree(d_out_vec_tails));	
+	pool.add(std::move(d_out_vect));
+	pool.add(std::move(d_out_vec_tails));
 }
 
 
