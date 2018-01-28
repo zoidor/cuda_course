@@ -43,6 +43,15 @@
 
  */
 
+
+
+template<typename T, typename device_host_reduce_op>
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_op op);
+
+template<typename T, typename device_host_reduce_op>
+static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op);
+
+
 static size_t bytes;
 
 template<typename T>
@@ -218,13 +227,14 @@ void scan(size_t * const d_vec, const size_t length, unsigned int identity_eleme
 
 
 template<typename OpType>
-__global__ void cuda_get_flags(const unsigned int * vals, size_t * flags, size_t numElems, OpType op)
+__global__ void cuda_map2(const unsigned int * vals, size_t * out_true, size_t * out_false, size_t numElems, OpType op)
 {
 	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
 	if(pos >= numElems) return;
 	
 	unsigned int is_bit_active = op(vals[pos]);
-	flags[pos] = is_bit_active;
+	out_true[pos] = is_bit_active;
+	out_false[pos] = !is_bit_active;
 }
 
 
@@ -246,10 +256,7 @@ void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_outputVals,
                unsigned int* const d_outputPos,
                size_t numElems)
-{ 
-
- 	int numbits = sizeof(unsigned int) * 8;
-	
+{ 	
 	unsigned int * vals1 = NULL;
 	unsigned int * vals2 = NULL;
 
@@ -282,6 +289,11 @@ void your_sort(unsigned int* const d_inputVals,
 	auto scan_op = [] __device__ (size_t el1, size_t el2) -> size_t {return el1 + el2;};
 
 
+	auto max_op = []__device__ __host__ (size_t el1, size_t el2){return max(el1, el2);};
+	
+	const size_t max_el = reduce(d_inputVals, numElems, K, max_op);
+	const size_t numbits = std::ceil(log2((double)max_el));
+
 	for(int i = 0; i < numbits; ++i)
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> unsigned int
@@ -289,13 +301,8 @@ void your_sort(unsigned int* const d_inputVals,
 				return (unsigned int)((el & mask) == 0);
 			  };
 
-		auto mask_op_1 = [mask]__device__ (unsigned int el) -> unsigned int
-			  {
-				return (unsigned int)((el & mask) != 0);
-			  }; 
-
 		
-		cuda_get_flags<<<num_blocks, K>>>(vals1, scatter_loc0, numElems, mask_op_0);
+		cuda_map2<<<num_blocks, K>>>(vals1, scatter_loc0, scatter_loc1, numElems, mask_op_0);
 		checkCudaErrors(cudaGetLastError());		
 		
 		checkCudaErrors(cudaMemcpy(flags, scatter_loc0, sizeof(size_t) * numElems, cudaMemcpyDeviceToDevice));
@@ -311,7 +318,6 @@ void your_sort(unsigned int* const d_inputVals,
 		checkCudaErrors(cudaMemcpy(&is_last_1, &flags[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
 		
 		start1 += is_last_1;
-		cuda_get_flags<<<num_blocks, K>>>(vals1, scatter_loc1, numElems, mask_op_1);
 		scan(scatter_loc1, numElems, 0, scan_op, start1);
 		checkCudaErrors(cudaGetLastError());		
 				
@@ -334,3 +340,56 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaFree(pos1));
 	checkCudaErrors(cudaFree(pos2));
 }
+
+
+template<typename T, typename device_host_reduce_op>
+static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op)
+{	
+	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
+	if(num_blocks == 0) num_blocks = 1;
+
+	T * d_out = NULL;
+	checkCudaErrors(cudaMalloc(&d_out, sizeof(T) * num_blocks));
+
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, d_out, op);
+	checkCudaErrors(cudaGetLastError());		
+
+	
+	std::vector<T> h_out(num_blocks); 
+	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaFree(d_out));
+	
+	return std::accumulate(h_out.cbegin() + 1, h_out.cend(), h_out[0], op);
+}
+
+
+template<typename T, typename device_host_reduce_op>
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_op op)
+{
+	extern __shared__ T s_vect[];
+
+	const int tid = threadIdx.x;
+	const int position = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	if(position > length) return;
+
+	//Copy into shared memory
+	s_vect[tid] = vec[position];
+
+	__syncthreads();	
+
+	for(int s = blockDim.x / 2; s > 0; s /= 2)
+	{
+		if(tid < s)
+		{
+			s_vect[tid] = op(s_vect[tid], s_vect[tid + s]);
+		}
+		__syncthreads();	
+	}
+
+	if(tid == 0)
+	{	
+		out[blockIdx.x] = s_vect[0];
+	}
+}
+
