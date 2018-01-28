@@ -27,10 +27,37 @@
 
 #include "utils.h"
 
-//reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
-//reference2: http://developer.download.nvidia.com/compute/cuda/1.1-Beta/x86_website/projects/histogram64/doc/histogram.pdf
 __global__
-void cuda_hist(const unsigned int* const vals, //INPUT
+static void cuda_hist_naive(const unsigned int* const vals, //INPUT
+               	     unsigned int* const histo,      //OUPUT
+                     int numVals, 
+	       	     int num_bins);
+
+__global__
+static void cuda_hist_naive(const unsigned int* const vals, //INPUT
+               	     unsigned int* const histo,      //OUPUT
+                     int numVals, 
+	       	     int num_bins);
+
+void computeHistogram(const unsigned int* const d_vals, //INPUT
+                      unsigned int* const d_histo,      //OUTPUT
+                      const unsigned int numBins,
+                      const unsigned int numElems)
+{
+	const int num_threads = 1024;
+	checkCudaErrors(cudaMemset(d_histo, 0, sizeof(unsigned int) * numBins));
+	int numBlocks = (int)ceil(numElems / (double)num_threads);
+	if(numBlocks == 0) numBlocks = 1;
+	cuda_hist_naive<<<numBlocks, num_threads, sizeof(unsigned int) * numBins>>> (d_vals, d_histo, 
+										numElems, numBins); 
+
+   	checkCudaErrors(cudaGetLastError());
+}
+
+
+//reference: https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
+__global__
+static void cuda_hist(const unsigned int* const vals, //INPUT
                unsigned int* const histo,      //OUPUT
                int numVals, 
 	       int num_bins)
@@ -58,7 +85,7 @@ void cuda_hist(const unsigned int* const vals, //INPUT
 
 
 __global__
-void cuda_hist_naive(const unsigned int* const vals, //INPUT
+static void cuda_hist_naive(const unsigned int* const vals, //INPUT
                	     unsigned int* const histo,      //OUPUT
                      int numVals, 
 	       	     int num_bins)
@@ -70,20 +97,4 @@ void cuda_hist_naive(const unsigned int* const vals, //INPUT
 		const unsigned int bin = vals[pos];
 		atomicAdd(&histo[bin], 1);
 	}
-}
-
-void computeHistogram(const unsigned int* const d_vals, //INPUT
-                      unsigned int* const d_histo,      //OUTPUT
-                      const unsigned int numBins,
-                      const unsigned int numElems)
-{
-	const int num_threads = 512;
-	checkCudaErrors(cudaMemset(d_histo, 0, sizeof(unsigned int) * numBins));
-	int numBlocks = (int)ceil(numElems / (double)num_threads);
-	if(numBlocks == 0) numBlocks = 1;
-	cuda_hist<<<numBlocks, num_threads, sizeof(unsigned int) * numBins>>> (d_vals, d_histo, 
-										numElems, numBins); 
-
-   	checkCudaErrors(cudaGetLastError());		
-   	checkCudaErrors(cudaGetLastError());
 }

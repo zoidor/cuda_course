@@ -82,8 +82,20 @@ int main(void)
   // copy the student-computed histogram back to the host
   checkCudaErrors(cudaMemcpy(h_studentHisto, d_histo, sizeof(unsigned int) * numBins, cudaMemcpyDeviceToHost));
 
+  GpuTimer timer2;
+  timer2.Start();
+
   //generate reference for the given mean
   reference_calculation(vals, h_refHisto, numBins, numElems);
+
+  timer2.Stop();
+  err = printf("REF code ran in: %f msecs.\n", timer2.Elapsed());
+
+  if (err < 0) {
+    //Couldn't print! Probably the student closed stdout - bad news
+    std::cerr << "Couldn't print timing information! STDOUT Closed!" << std::endl;
+    exit(1);
+  }
 
   //Now do the comparison
   checkResultsExact(h_refHisto, h_studentHisto, numBins);
