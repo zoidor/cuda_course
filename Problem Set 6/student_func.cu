@@ -296,28 +296,6 @@ void substitute_interior_pixels(uchar4 * d_destImg, const float * buffer_R, cons
 	checkCudaErrors(cudaGetLastError());
 }
 
-
-void print_arr_uchar(const uchar4 * arr, size_t length)
-{
-	std::vector<uchar4> h_arr(length);
-	cudaMemcpy(h_arr.data(), arr, sizeof(uchar4) * length, cudaMemcpyDeviceToHost);
-
-	for(const auto e : h_arr)
-		std::cout<<(float)e.x<<"|"<<(float)e.x<<"|"<<(float)e.z<<"\n";
-	std::cout<<"-------------------------\n";
-}
-
-template<typename T>
-void print_arr(const T * arr, size_t length)
-{
-	std::vector<T> h_arr(length);
-	cudaMemcpy(h_arr.data(), arr, sizeof(T) * length, cudaMemcpyDeviceToHost);
-
-	for(int i = 0; i < h_arr.size(); ++i)
-		std::cout<<i<<"|"<<(float)h_arr[i]<<"\n";
-	std::cout<<"-------------------------\n";
-}
-
 void your_blend(const uchar4* const h_sourceImg,  //IN
                 const size_t numRowsSource, const size_t numColsSource,
                 const uchar4* const h_destImg, //IN
