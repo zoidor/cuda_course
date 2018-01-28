@@ -44,7 +44,7 @@
 
 //TODO: investigate wether the kernels can be reduced. Investigate whether block size can be used to improve performance. 
 template<typename device_scan_operator>
-__global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, const size_t length_vec, device_scan_operator op, unsigned int identity)
+__global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity)
 {
 	extern __shared__ size_t s_block_scan_mem[];
 	size_t * s_block_scan1 = s_block_scan_mem;
@@ -71,48 +71,69 @@ __global__ void cuda_scan_in_block(const size_t * d_in, size_t * d_out, const si
 	} 
 
 	d_out[pos] = s_block_scan1[tid];
-}
 
-template<typename device_scan_operator>
-__global__ void cuda_scan_post_process(const size_t * in_vec, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size)
-{
-	unsigned int pos = blockDim.x * blockIdx.x + threadIdx.x;
-
-	if(pos >= length_vec) return;
-
-	//we want that the previous and current block sizes can be different
-	const int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
-	int last_el_of_prev_block = idx_of_block_in_scan * cuda_scan_in_block_b_size - 1;
-
-	//this is linear scan to put together the segment tails, I am assuming that the number 
-	//of blocks is relatively small hence this loop is not a problem. If the number of blocks is
-	//high, we generate an array of the segment tails and use scan on it. The recursion ends when
-	//we can execute the scan on a single block
-
-	out_vec[pos] = in_vec[pos];
-	for(; last_el_of_prev_block > 0; last_el_of_prev_block -= cuda_scan_in_block_b_size)
+	if(tid == blockDim.x - 1) 
 	{
-		out_vec[pos] += in_vec[last_el_of_prev_block];
+		d_out_tails[blockIdx.x] =  s_block_scan1[tid];
 	}
 }
 
+template<typename device_scan_operator>
+__global__ void cuda_scan_post_process(const size_t * in_vec, const size_t * in_vec_tails, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const size_t start)
+{
+	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if(pos >= length_vec) 
+	{
+		return;
+	}
+
+	//we want to allow the previous and current block sizes to be different
+	const int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
+	size_t el = op(in_vec[pos], in_vec_tails[idx_of_block_in_scan]);
+	out_vec[pos] = op(el, start);
+}
+
+void print(const size_t * d_vec, const size_t length)
+{
+	std::vector<size_t> toP(length);
+	cudaMemcpy(toP.data(), d_vec, sizeof(size_t) * length, cudaMemcpyDeviceToHost);
+	for(auto el : toP)	
+	{
+		printf("%i ", (int)el);
+	}
+	printf("\n--------------- %i *------\n", (int)length);
+}
+
 template<typename operatorType>
-void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op){
-	int K = 1024;
-	int K2 = 1024;
-	int num_blocks = std::ceil(length / (double)K);
-	int num_blocks2 = std::ceil(length / (double)K2);
+void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element){
+	const int K = 1024;
+	const int K2 = 1024;
+	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
+	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
 	size_t * d_out_vec = NULL;
+	size_t * d_out_vec_tails = NULL;
 
 	checkCudaErrors(cudaMalloc(&d_out_vec, sizeof(size_t) * length));
+	checkCudaErrors(cudaMalloc(&d_out_vec_tails, sizeof(size_t) * num_blocks));
+	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vec, d_out_vec_tails, length, op, identity_element);
+	checkCudaErrors(cudaGetLastError());
 
-	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vec, length, op, identity_element);
-	checkCudaErrors(cudaGetLastError());		
-	
-	cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_vec, length, op, K);
+	if(num_blocks == 1)
+	{
+
+		cudaMemcpy(d_vec, d_out_vec, length * sizeof(size_t), cudaMemcpyDeviceToDevice);
+	}
+	else
+	{
+		scan(d_out_vec_tails, num_blocks, identity_element, op, identity_element);
+		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec, d_out_vec_tails, d_vec, length, op, K, start_element);
+	}
+
 	checkCudaErrors(cudaGetLastError());		
 
 	checkCudaErrors(cudaFree(d_out_vec));	
+	checkCudaErrors(cudaFree(d_out_vec_tails));	
 }
 
 
@@ -133,6 +154,9 @@ __global__ void scatter(const size_t * scatter_0, const size_t * scatter_1, cons
 	if(pos >= length) return;
 
 	size_t scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
+	
+	if(scatter_pos >= length) return;
+
 	out[scatter_pos] = in[pos]; 
 }  
 
@@ -141,9 +165,10 @@ void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
                unsigned int* const d_outputVals,
                unsigned int* const d_outputPos,
-               const size_t numElems)
+               size_t numElems)
 { 
 
+	//numElems = 32;
  	int numbits = sizeof(unsigned int) * 8;
 	
 	unsigned int * vals1 = NULL;
@@ -196,10 +221,10 @@ void your_sort(unsigned int* const d_inputVals,
 		
 		checkCudaErrors(cudaMemcpy(flags, scatter_loc0, sizeof(size_t) * numElems, cudaMemcpyDeviceToDevice));
 		
-		scan(scatter_loc0, numElems, 0, scan_op);
+		scan(scatter_loc0, numElems, 0, scan_op, 0);
 		checkCudaErrors(cudaGetLastError());		
 		
-		
+
 		size_t start1;
 		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
 
@@ -207,9 +232,8 @@ void your_sort(unsigned int* const d_inputVals,
 		checkCudaErrors(cudaMemcpy(&is_last_1, &flags[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
 		
 		start1 += is_last_1;
-
 		cuda_get_flags<<<num_blocks, K>>>(vals1, scatter_loc1, numElems, mask_op_1);
-		scan(scatter_loc1, numElems, start1, scan_op);
+		scan(scatter_loc1, numElems, 0, scan_op, start1);
 		checkCudaErrors(cudaGetLastError());		
 				
 		scatter<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, numElems);
