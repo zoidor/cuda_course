@@ -348,7 +348,7 @@ Positions compact_interior_border(const unsigned char * d_refined_mask, const si
 
 	CudaBuffer<size_t> mask_indexes(l);
 	
-	const size_t num_threads = 256;
+	const size_t num_threads = 512;
 	const size_t num_blocks = std::max(1.0, std::ceil((double) l / num_threads));
 
 	map<<<num_threads, num_blocks>>>(mask_indexes.getDeviceBuffer(), d_refined_mask, l, op_map);
@@ -596,7 +596,7 @@ __global__ void substitute_interior_pixels_cuda(uchar4 * d_destImg, const float 
 void substitute_interior_pixels(uchar4 * d_destImg, const float * buffer_R, const float *buffer_G, const float * buffer_B, 
 			const unsigned char * d_refined_mask, const size_t sz, Positions& pts, const size_t sz_x)
 {
-	const size_t num_threads = 128;
+	const size_t num_threads = 256;
 	size_t num_blocks = (size_t)std::ceil(pts.getLength() / (double)num_threads);
 	if(num_blocks == 0)  num_blocks = 1;
 	
