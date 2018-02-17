@@ -124,7 +124,7 @@ void your_sort(unsigned int* const d_inputVals,
 	type_scatter * scatter_loc1 = NULL;
 	type_scatter * flags = NULL;
 
-	checkCudaErrors(cudaMalloc(&scatter_loc0, sizeof(type_scatter) * numElems));
+	checkCudaErrors(cudaMalloc(&scatter_loc0, sizeof(type_scatter) * (1 + numElems)));
 	checkCudaErrors(cudaMalloc(&flags, sizeof(type_scatter) * numElems));
 	checkCudaErrors(cudaMalloc(&scatter_loc1, sizeof(type_scatter) * numElems));
 
@@ -144,7 +144,7 @@ void your_sort(unsigned int* const d_inputVals,
 	auto scan_op = [] __device__ (type_scatter el1, type_scatter el2) -> type_scatter {return el1 + el2;};
 
 
-	auto max_op = []__device__ __host__ (type_scatter el1, type_scatter el2){return max(el1, el2);};
+	auto max_op = []__device__ __host__ (type_scatter el1, type_scatter el2) -> type_scatter {return max(el1, el2);};
 	
 	const int max_el = reduce(d_inputVals, numElems, K_reduce, max_op);
 	const int numbits = std::ceil(log2((double)max_el));
@@ -160,16 +160,12 @@ void your_sort(unsigned int* const d_inputVals,
 		
 		checkCudaErrors(cudaMemcpy(flags, scatter_loc0, sizeof(type_scatter) * numElems, cudaMemcpyDeviceToDevice));
 		
-		scan(scatter_loc0, numElems, (type_scatter)0, scan_op, (type_scatter)0);
+		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op, (type_scatter)0);
 		checkCudaErrors(cudaGetLastError());		
 		
 		type_scatter start1;
-		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems - 1], sizeof(type_scatter), cudaMemcpyDeviceToHost));
+		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems], sizeof(type_scatter), cudaMemcpyDeviceToHost));
 
-		type_scatter is_last_1;		
-		checkCudaErrors(cudaMemcpy(&is_last_1, &flags[numElems - 1], sizeof(type_scatter), cudaMemcpyDeviceToHost));
-		
-		start1 += is_last_1;
 		scan(scatter_loc1, numElems, (type_scatter)0, scan_op, start1);
 		checkCudaErrors(cudaGetLastError());		
 				
@@ -207,7 +203,6 @@ static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_
 	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, d_out, op);
 	checkCudaErrors(cudaGetLastError());		
 
-	
 	std::vector<T> h_out(num_blocks); 
 	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaFree(d_out));
