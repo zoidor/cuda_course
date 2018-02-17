@@ -110,14 +110,6 @@ void your_sort(unsigned int* const d_inputVals,
 		return;
 	}
 	
-
-	unsigned int * vals1 = NULL;
-	unsigned int * vals2 = NULL;
-
-
-	unsigned int * pos1 = NULL;
-	unsigned int * pos2 = NULL;
-
 	using type_scatter = int;
 
 	type_scatter * scatter_loc0 = NULL;
@@ -127,15 +119,6 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaMalloc(&scatter_loc0, sizeof(type_scatter) * (1 + numElems)));
 	checkCudaErrors(cudaMalloc(&flags, sizeof(type_scatter) * numElems));
 	checkCudaErrors(cudaMalloc(&scatter_loc1, sizeof(type_scatter) * (1 + numElems)));
-
-
-	checkCudaErrors(cudaMalloc(&vals1, sizeof(unsigned int) * numElems));
-	checkCudaErrors(cudaMalloc(&vals2, sizeof(unsigned int) * numElems));
-	checkCudaErrors(cudaMalloc(&pos1, sizeof(unsigned int) * numElems));
-	checkCudaErrors(cudaMalloc(&pos2, sizeof(unsigned int) * numElems));
-	
-	checkCudaErrors(cudaMemcpy(vals1, d_inputVals, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
-	checkCudaErrors(cudaMemcpy(pos1, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
 	const int K = 1024;
 	const int K_reduce = 512;
@@ -148,6 +131,13 @@ void your_sort(unsigned int* const d_inputVals,
 	
 	const int max_el = reduce(d_inputVals, numElems, K_reduce, max_op);
 	const int numbits = std::ceil(log2((double)max_el));
+
+	unsigned int * vals1 = d_inputVals;
+	unsigned int * pos1 = d_inputPos;
+
+	unsigned int * vals2 = d_outputVals;
+	unsigned int * pos2 = d_outputPos;
+
 	for(int i = 0; i < numbits; ++i)
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> type_scatter
@@ -179,10 +169,6 @@ void your_sort(unsigned int* const d_inputVals,
 	checkCudaErrors(cudaMemcpy(d_outputVals, vals1, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 	checkCudaErrors(cudaMemcpy(d_outputPos, pos1, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
-	checkCudaErrors(cudaFree(vals1));
-	checkCudaErrors(cudaFree(vals2));
-	checkCudaErrors(cudaFree(pos1));
-	checkCudaErrors(cudaFree(pos2));
 }
 
 
