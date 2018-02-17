@@ -58,10 +58,10 @@ template<typename T, typename device_scan_operator>
 __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_tails, const size_t length_vec, device_scan_operator op, T identity);
 
 template<typename T, typename device_scan_operator>
-__global__ static void cuda_scan_post_process(const T * in_vec, const T * in_vec_tails, T * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const T start);
+__global__ static void cuda_scan_post_process(const T * in_vec, const T * in_vec_tails, T * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size);
 
 template<typename T, typename operatorType>
-static void scan(T * d_vec, const size_t length, T identity_element, operatorType op, T start_element);
+static void scan(T * d_vec, const size_t length, T identity_element, operatorType op);
 
 template<typename Tv, typename T, typename OpType>
 __global__ static void cuda_map2(const Tv * vals, T * out_true, T * out_false, size_t numElems, OpType op);
@@ -160,15 +160,12 @@ void your_sort(unsigned int* const d_inputVals,
 		
 		checkCudaErrors(cudaMemcpy(flags, scatter_loc0, sizeof(type_scatter) * numElems, cudaMemcpyDeviceToDevice));
 		
-		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op, (type_scatter)0);
+		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op);
+		checkCudaErrors(cudaGetLastError());		
+
+		scan(scatter_loc1, numElems + 1, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 		
-		type_scatter start1;
-		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems], sizeof(type_scatter), cudaMemcpyDeviceToHost));
-
-		scan(scatter_loc1, numElems + 1, (type_scatter)0, scan_op, start1);
-		checkCudaErrors(cudaGetLastError());		
-				
 		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
 
 		std::swap(vals1, vals2);
@@ -362,7 +359,7 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 }
 
 template<typename T, typename device_scan_operator>
-__global__ static  void cuda_scan_post_process(const T * in_vec, const T * in_vec_tails, T * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const T start)
+__global__ static  void cuda_scan_post_process(const T * in_vec, const T * in_vec_tails, T * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size)
 {
 	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -374,12 +371,12 @@ __global__ static  void cuda_scan_post_process(const T * in_vec, const T * in_ve
 	//we want to allow the previous and current block sizes to be different
 	const int idx_of_block_in_scan = pos / cuda_scan_in_block_b_size;
 	T el = op(in_vec[pos], in_vec_tails[idx_of_block_in_scan]);
-	out_vec[pos] = op(el, start);
+	out_vec[pos] = el;
 }
 
 
 template<typename T, typename operatorType>
-static void scan(T * d_vec, const size_t length, T identity_element, operatorType op, T start_element)
+static void scan(T * d_vec, const size_t length, T identity_element, operatorType op)
 {
 
 	static CudaBufferPool<T> pool(20);
@@ -401,8 +398,8 @@ static void scan(T * d_vec, const size_t length, T identity_element, operatorTyp
 	}
 	else
 	{
-		scan(d_out_vec_tails.getDeviceBuffer(), num_blocks, identity_element, op, identity_element);
-		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K, start_element);
+		scan(d_out_vec_tails.getDeviceBuffer(), num_blocks, identity_element, op);
+		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K);
 	}
 
 	checkCudaErrors(cudaGetLastError());		
@@ -431,7 +428,7 @@ __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const 
 	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 	if(pos >= length) return;
 
-	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
+	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos] + scatter_0[length];
 	
 	if(scatter_pos >= length) return;
 
