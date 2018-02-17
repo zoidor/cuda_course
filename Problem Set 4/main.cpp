@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
   timer.Start();
 
   //call the students' code
-  your_sort(inputVals, inputPos, outputVals, outputPos, numElems, true);
+  your_sort(inputVals, inputPos, outputVals, outputPos, numElems, false);
 
   timer.Stop();
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());

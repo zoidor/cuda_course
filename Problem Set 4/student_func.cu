@@ -55,18 +55,18 @@ static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_
 
 
 template<typename device_scan_operator>
-__global__ static void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity);
+__global__ static void cuda_scan_in_block(const int * d_in, int * d_out, int * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity);
 
 template<typename device_scan_operator>
-__global__ static void cuda_scan_post_process(const size_t * in_vec, const size_t * in_vec_tails, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const size_t start);
+__global__ static void cuda_scan_post_process(const int * in_vec, const int * in_vec_tails, int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const int start);
 
 template<typename operatorType>
-static void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element);
+static void scan(int * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element);
 
 template<typename OpType>
-__global__ static void cuda_map2(const unsigned int * vals, size_t * out_true, size_t * out_false, size_t numElems, OpType op);
+__global__ static void cuda_map2(const unsigned int * vals, int * out_true, int * out_false, size_t numElems, OpType op);
 
-__global__ static void scatter2(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length);
+__global__ static void scatter2(const int * scatter_0, const int * scatter_1, const int * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length);
 
 /* Public function */
 
@@ -119,13 +119,13 @@ void your_sort(unsigned int* const d_inputVals,
 
 	
 
-	size_t * scatter_loc0 = NULL;
-	size_t * scatter_loc1 = NULL;
-	size_t * flags = NULL;
+	int * scatter_loc0 = NULL;
+	int * scatter_loc1 = NULL;
+	int * flags = NULL;
 
-	checkCudaErrors(cudaMalloc(&scatter_loc0, sizeof(size_t) * numElems));
-	checkCudaErrors(cudaMalloc(&flags, sizeof(size_t) * numElems));
-	checkCudaErrors(cudaMalloc(&scatter_loc1, sizeof(size_t) * numElems));
+	checkCudaErrors(cudaMalloc(&scatter_loc0, sizeof(int) * numElems));
+	checkCudaErrors(cudaMalloc(&flags, sizeof(int) * numElems));
+	checkCudaErrors(cudaMalloc(&scatter_loc1, sizeof(int) * numElems));
 
 
 	checkCudaErrors(cudaMalloc(&vals1, sizeof(unsigned int) * numElems));
@@ -140,13 +140,13 @@ void your_sort(unsigned int* const d_inputVals,
 	const int K_reduce = 512;
 	const int num_blocks = (int)ceil(numElems / (double)K);
 
-	auto scan_op = [] __device__ (size_t el1, size_t el2) -> size_t {return el1 + el2;};
+	auto scan_op = [] __device__ (int el1, int el2) -> int {return el1 + el2;};
 
 
-	auto max_op = []__device__ __host__ (size_t el1, size_t el2){return max(el1, el2);};
+	auto max_op = []__device__ __host__ (int el1, int el2){return max(el1, el2);};
 	
-	const size_t max_el = reduce(d_inputVals, numElems, K_reduce, max_op);
-	const size_t numbits = std::ceil(log2((double)max_el));
+	const int max_el = reduce(d_inputVals, numElems, K_reduce, max_op);
+	const int numbits = std::ceil(log2((double)max_el));
 	for(int i = 0; i < numbits; ++i)
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> unsigned int
@@ -157,16 +157,16 @@ void your_sort(unsigned int* const d_inputVals,
 		cuda_map2<<<num_blocks, K>>>(vals1, scatter_loc0, scatter_loc1, numElems, mask_op_0);
 		checkCudaErrors(cudaGetLastError());		
 		
-		checkCudaErrors(cudaMemcpy(flags, scatter_loc0, sizeof(size_t) * numElems, cudaMemcpyDeviceToDevice));
+		checkCudaErrors(cudaMemcpy(flags, scatter_loc0, sizeof(int) * numElems, cudaMemcpyDeviceToDevice));
 		
 		scan(scatter_loc0, numElems, 0, scan_op, 0);
 		checkCudaErrors(cudaGetLastError());		
 		
-		size_t start1;
-		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
+		int start1;
+		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems - 1], sizeof(int), cudaMemcpyDeviceToHost));
 
-		size_t is_last_1;		
-		checkCudaErrors(cudaMemcpy(&is_last_1, &flags[numElems - 1], sizeof(size_t), cudaMemcpyDeviceToHost));
+		int is_last_1;		
+		checkCudaErrors(cudaMemcpy(&is_last_1, &flags[numElems - 1], sizeof(int), cudaMemcpyDeviceToHost));
 		
 		start1 += is_last_1;
 		scan(scatter_loc1, numElems, 0, scan_op, start1);
@@ -331,11 +331,11 @@ class CudaBufferPool
 
 
 template<typename device_scan_operator>
-__global__ static void cuda_scan_in_block(const size_t * d_in, size_t * d_out, size_t * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity)
+__global__ static void cuda_scan_in_block(const int * d_in, int * d_out, int * d_out_tails, const size_t length_vec, device_scan_operator op, unsigned int identity)
 {
-	extern __shared__ size_t s_block_scan_mem[];
-	size_t * s_block_scan1 = s_block_scan_mem;
-	size_t * s_block_scan2 = s_block_scan_mem + blockDim.x;
+	extern __shared__ int s_block_scan_mem[];
+	int * s_block_scan1 = s_block_scan_mem;
+	int * s_block_scan2 = s_block_scan_mem + blockDim.x;
 	const int tid = threadIdx.x;
 	const int pos = tid + blockDim.x * blockIdx.x;
 
@@ -352,7 +352,7 @@ __global__ static void cuda_scan_in_block(const size_t * d_in, size_t * d_out, s
 		else
 			s_block_scan2[tid] = s_block_scan1[tid];
 		__syncthreads();
-		size_t * tmp = s_block_scan1;
+		int * tmp = s_block_scan1;
 		s_block_scan1 = s_block_scan2;
 		s_block_scan2 = tmp;
 	} 
@@ -366,7 +366,7 @@ __global__ static void cuda_scan_in_block(const size_t * d_in, size_t * d_out, s
 }
 
 template<typename device_scan_operator>
-__global__ static  void cuda_scan_post_process(const size_t * in_vec, const size_t * in_vec_tails, size_t * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const size_t start)
+__global__ static  void cuda_scan_post_process(const int * in_vec, const int * in_vec_tails, int * out_vec, const size_t length_vec, device_scan_operator op, unsigned int cuda_scan_in_block_b_size, const int start)
 {
 	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -383,25 +383,25 @@ __global__ static  void cuda_scan_post_process(const size_t * in_vec, const size
 
 
 template<typename operatorType>
-static void scan(size_t * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element)
+static void scan(int * const d_vec, const size_t length, unsigned int identity_element, operatorType op, unsigned int start_element)
 {
 
-	static CudaBufferPool<size_t> pool(20);
+	static CudaBufferPool<int> pool(20);
 	const int K = 256;
 	const int K2 = 1024;
 	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
 	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
 
 
-	CudaBuffer<size_t> d_out_vect(pool.get(length));
-	CudaBuffer<size_t> d_out_vec_tails(pool.get(num_blocks));
+	CudaBuffer<int> d_out_vect(pool.get(length));
+	CudaBuffer<int> d_out_vec_tails(pool.get(num_blocks));
 	
-	cuda_scan_in_block<<<num_blocks, K, sizeof(size_t) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
+	cuda_scan_in_block<<<num_blocks, K, sizeof(int) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());
 
 	if(num_blocks == 1)
 	{
-		cudaMemcpy(d_vec, d_out_vect.getDeviceBuffer(), length * sizeof(size_t), cudaMemcpyDeviceToDevice);
+		cudaMemcpy(d_vec, d_out_vect.getDeviceBuffer(), length * sizeof(int), cudaMemcpyDeviceToDevice);
 	}
 	else
 	{
@@ -417,7 +417,7 @@ static void scan(size_t * const d_vec, const size_t length, unsigned int identit
 
 
 template<typename OpType>
-__global__ static void cuda_map2(const unsigned int * vals, size_t * out_true, size_t * out_false, size_t numElems, OpType op)
+__global__ static void cuda_map2(const unsigned int * vals, int * out_true, int * out_false, size_t numElems, OpType op)
 {
 	const size_t pos = blockDim.x * blockIdx.x + threadIdx.x;
 	if(pos >= numElems) return;
@@ -428,12 +428,12 @@ __global__ static void cuda_map2(const unsigned int * vals, size_t * out_true, s
 }
 
 
-__global__ static void scatter2(const size_t * scatter_0, const size_t * scatter_1, const size_t * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length)
+__global__ static void scatter2(const int * scatter_0, const int * scatter_1, const int * flags_0, const unsigned int * in1, unsigned int * out1, const unsigned int * in2, unsigned int * out2, const size_t length)
 {
 	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 	if(pos >= length) return;
 
-	size_t scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
+	int scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
 	
 	if(scatter_pos >= length) return;
 
