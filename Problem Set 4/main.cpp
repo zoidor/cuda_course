@@ -28,7 +28,7 @@ void your_sort(unsigned int* const inputVals,
                unsigned int* const inputPos,
                unsigned int* const outputVals,
                unsigned int* const outputPos,
-               const size_t numElems);
+               const size_t numElems, const bool useT);
 
 int main(int argc, char **argv) {
   unsigned int *inputVals;
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
   timer.Start();
 
   //call the students' code
-  your_sort(inputVals, inputPos, outputVals, outputPos, numElems);
+  your_sort(inputVals, inputPos, outputVals, outputPos, numElems, true);
 
   timer.Stop();
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());

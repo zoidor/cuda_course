@@ -3,6 +3,8 @@
 
 #include "utils.h"
 #include <thrust/host_vector.h>
+#include <thrust/device_ptr.h>
+#include <thrust/system/cuda/execution_policy.h>
 #include <map>
 #include <algorithm>
 /* Red Eye Removal
@@ -68,6 +70,20 @@ __global__ static void scatter2(const size_t * scatter_0, const size_t * scatter
 
 /* Public function */
 
+static void sort_thrust(unsigned int* const d_inputVals, 
+			unsigned int* const d_inputPos, 
+			unsigned int* const d_outputVals, 
+			unsigned int* const d_outputPos, 
+			size_t numElems)
+{
+		checkCudaErrors(cudaMemcpy(d_outputVals, d_inputVals, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
+		checkCudaErrors(cudaMemcpy(d_outputPos, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
+
+	thrust::device_ptr<unsigned int> p_Pos(d_outputPos);
+	thrust::device_ptr<unsigned int> p_Vals(d_outputVals);
+
+	thrust::sort_by_key(thrust::cuda::par, p_Vals, p_Vals + numElems, p_Pos); 
+}
 
 /**
  * @brief Entry point function, provided by the HW. 
@@ -84,8 +100,16 @@ void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
                unsigned int* const d_outputVals,
                unsigned int* const d_outputPos,
-               size_t numElems)
+               size_t numElems,
+	       const bool use_thrust)
 { 	
+
+	if(use_thrust){
+		sort_thrust(d_inputVals, d_inputPos, d_outputVals, d_outputPos, numElems);
+		return;
+	}
+	
+
 	unsigned int * vals1 = NULL;
 	unsigned int * vals2 = NULL;
 
