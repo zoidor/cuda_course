@@ -372,25 +372,19 @@ static void scan(T * d_vec, const size_t length, T identity_element, operatorTyp
 	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
 
 
-	CudaBuffer<T> d_out_vect(pool.get(length));
 	CudaBuffer<T> d_out_vec_tails(pool.get(num_blocks));
 	
-	cuda_scan_in_block<<<num_blocks, K, sizeof(T) * K * 2>>>(d_vec, d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
+	cuda_scan_in_block<<<num_blocks, K, sizeof(T) * K * 2>>>(d_vec, d_vec, d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());
 
-	if(num_blocks == 1)
-	{
-		cudaMemcpy(d_vec, d_out_vect.getDeviceBuffer(), length * sizeof(T), cudaMemcpyDeviceToDevice);
-	}
-	else
+	if(num_blocks != 1)
 	{
 		scan(d_out_vec_tails.getDeviceBuffer(), num_blocks, identity_element, op);
-		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vect.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K);
+		cuda_scan_post_process<<<num_blocks2, K2>>>(d_vec, d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K);
 	}
 
 	checkCudaErrors(cudaGetLastError());		
 
-	pool.add(std::move(d_out_vect));
 	pool.add(std::move(d_out_vec_tails));
 }
 
