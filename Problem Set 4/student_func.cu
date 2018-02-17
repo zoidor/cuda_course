@@ -80,6 +80,8 @@ static void sort_thrust(unsigned int* const d_inputVals,
 		checkCudaErrors(cudaMemcpy(d_outputVals, d_inputVals, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 		checkCudaErrors(cudaMemcpy(d_outputPos, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
+//Implementation from: https://code.google.com/archive/p/back40computing/wikis/RadixSorting.wiki
+		
 	thrust::device_ptr<unsigned int> p_Pos(d_outputPos);
 	thrust::device_ptr<unsigned int> p_Vals(d_outputVals);
 
@@ -330,6 +332,7 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 			s_block_scan2[tid] = op(s_block_scan1[tid], s_block_scan1[prev]);
 		else
 			s_block_scan2[tid] = s_block_scan1[tid];
+
 		__syncthreads();
 		T * tmp = s_block_scan1;
 		s_block_scan1 = s_block_scan2;
