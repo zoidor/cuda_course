@@ -126,7 +126,7 @@ void your_sort(unsigned int* const d_inputVals,
 
 	checkCudaErrors(cudaMalloc(&scatter_loc0, sizeof(type_scatter) * (1 + numElems)));
 	checkCudaErrors(cudaMalloc(&flags, sizeof(type_scatter) * numElems));
-	checkCudaErrors(cudaMalloc(&scatter_loc1, sizeof(type_scatter) * numElems));
+	checkCudaErrors(cudaMalloc(&scatter_loc1, sizeof(type_scatter) * (1 + numElems)));
 
 
 	checkCudaErrors(cudaMalloc(&vals1, sizeof(unsigned int) * numElems));
@@ -166,7 +166,7 @@ void your_sort(unsigned int* const d_inputVals,
 		type_scatter start1;
 		checkCudaErrors(cudaMemcpy(&start1, &scatter_loc0[numElems], sizeof(type_scatter), cudaMemcpyDeviceToHost));
 
-		scan(scatter_loc1, numElems, (type_scatter)0, scan_op, start1);
+		scan(scatter_loc1, numElems + 1, (type_scatter)0, scan_op, start1);
 		checkCudaErrors(cudaGetLastError());		
 				
 		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
