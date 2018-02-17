@@ -163,7 +163,7 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 
-		scan(scatter_loc1, numElems + 1, (type_scatter)0, scan_op);
+		scan(scatter_loc1, numElems, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 		
 		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
