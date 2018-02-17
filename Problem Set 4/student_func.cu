@@ -118,7 +118,7 @@ void your_sort(unsigned int* const d_inputVals,
 	unsigned int * pos1 = NULL;
 	unsigned int * pos2 = NULL;
 
-	using type_scatter = short;
+	using type_scatter = int;
 
 	type_scatter * scatter_loc0 = NULL;
 	type_scatter * scatter_loc1 = NULL;
