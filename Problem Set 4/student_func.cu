@@ -81,7 +81,7 @@ static void sort_thrust(unsigned int* const d_inputVals,
 		checkCudaErrors(cudaMemcpy(d_outputPos, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
 //Implementation from: https://code.google.com/archive/p/back40computing/wikis/RadixSorting.wiki
-		
+//alternatively, one can take a look at the scan http://research.nvidia.com/sites/default/files/pubs/2016-03_Single-pass-Parallel-Prefix/nvr-2016-002.pdf
 	thrust::device_ptr<unsigned int> p_Pos(d_outputPos);
 	thrust::device_ptr<unsigned int> p_Vals(d_outputVals);
 
