@@ -341,7 +341,7 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 
 	d_out[pos] = s_block_scan1[tid];
 
-	if(d_out_tails != NULL && tid == blockDim.x - 1) 
+	if(tid == blockDim.x - 1 || pos == length_vec - 1) 
 	{
 		d_out_tails[blockIdx.x] =  s_block_scan1[tid];
 	}
