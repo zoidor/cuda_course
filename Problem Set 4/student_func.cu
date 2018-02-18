@@ -316,7 +316,6 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 {
 	extern __shared__ T s_block_scan_mem[];
 	T * s_block_scan1 = s_block_scan_mem;
-	T * s_block_scan2 = s_block_scan_mem + blockDim.x;
 	const int tid = threadIdx.x;
 	const int pos = tid + blockDim.x * blockIdx.x;
 
@@ -325,18 +324,15 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 	s_block_scan1[tid] = pos == 0 ? identity : d_in[pos -1];
 	__syncthreads();
 
-	for(int shift = 1; shift <= blockDim.x; shift *= 2)
+	for(int shift = 1; shift < blockDim.x; shift *= 2)
 	{
 		const int prev = tid - shift;
+		T el = s_block_scan1[tid];
 		if(prev >= 0)
-			s_block_scan2[tid] = op(s_block_scan1[tid], s_block_scan1[prev]);
-		else
-			s_block_scan2[tid] = s_block_scan1[tid];
-
+			el = op(el, s_block_scan1[prev]);
 		__syncthreads();
-		T * tmp = s_block_scan1;
-		s_block_scan1 = s_block_scan2;
-		s_block_scan2 = tmp;
+		 s_block_scan1[tid] = el;
+		__syncthreads();
 	} 
 
 	d_out[pos] = s_block_scan1[tid];
@@ -369,7 +365,7 @@ static void scan(T * d_vec, const size_t length, T identity_element, operatorTyp
 {
 
 	static CudaBufferPool<T> pool(20);
-	const int K = 256;
+	const int K = 128;
 	const int K2 = 1024;
 	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
 	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
@@ -377,7 +373,7 @@ static void scan(T * d_vec, const size_t length, T identity_element, operatorTyp
 
 	CudaBuffer<T> d_out_vec_tails(pool.get(num_blocks));
 	
-	cuda_scan_in_block<<<num_blocks, K, sizeof(T) * K * 2>>>(d_vec, d_vec, d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
+	cuda_scan_in_block<<<num_blocks, K, sizeof(T) * K>>>(d_vec, d_vec, d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());
 
 	if(num_blocks != 1)
