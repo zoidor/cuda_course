@@ -69,6 +69,9 @@ __global__ static void cuda_map2(const Tv * vals, T * out_true, T * out_false, s
 template<typename Tv, typename T>
 __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const T * flags_0, const Tv * in1, Tv * out1, const Tv * in2, Tv * out2, const size_t length);
 
+template<typename T>
+__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length);
+
 /* Public function */
 
 static void sort_thrust(unsigned int* const d_inputVals, 
@@ -86,17 +89,6 @@ static void sort_thrust(unsigned int* const d_inputVals,
 	thrust::device_ptr<unsigned int> p_Vals(d_outputVals);
 
 	thrust::sort_by_key(thrust::cuda::par, p_Vals, p_Vals + numElems, p_Pos); 
-}
-
-template<typename T>
-__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length){
-	
-	size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
-
-	if(pos >= length) return;
-
-	scatter1[pos] = pos - scatter0[pos] + scatter0[length + 1];
-	
 }
 
 /**
@@ -417,6 +409,16 @@ __global__ static void cuda_map2(const Tv * vals, T * out_true, T * out_false, s
 	out_false[pos] = !is_bit_active;
 }
 
+template<typename T>
+__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length){
+	
+	size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
+
+	if(pos >= length) return;
+
+	scatter1[pos] = pos - scatter0[pos] + scatter0[length + 1];
+	
+}
 
 template<typename Tv, typename T>
 __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const T * flags_0, const Tv * in1, Tv * out1, const Tv * in2, Tv * out2, const size_t length)
