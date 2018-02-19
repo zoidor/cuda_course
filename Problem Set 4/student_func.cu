@@ -88,6 +88,17 @@ static void sort_thrust(unsigned int* const d_inputVals,
 	thrust::sort_by_key(thrust::cuda::par, p_Vals, p_Vals + numElems, p_Pos); 
 }
 
+template<typename T>
+__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length){
+	
+	size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
+
+	if(pos >= length) return;
+
+	scatter1[pos] = pos - scatter0[pos] + scatter0[length + 1];
+	
+}
+
 /**
  * @brief Entry point function, provided by the HW. 
  *
@@ -155,7 +166,7 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 
-		scan(scatter_loc1, numElems, (type_scatter)0, scan_op);
+		gen_scatter1<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, numElems);
 		checkCudaErrors(cudaGetLastError());		
 		
 		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
@@ -413,7 +424,7 @@ __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const 
 	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 	if(pos >= length) return;
 
-	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos] + scatter_0[length];
+	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
 	
 	if(scatter_pos >= length) return;
 
