@@ -241,7 +241,7 @@ __global__ static void cuda_reduce(const T * vec, const size_t length, const siz
 
 	if(tid == 0)
 	{	
-		atomicAdd(out, s_vect[0]);
+		out[blockDim.x] =  s_vect[0];
 	}
 }
 
