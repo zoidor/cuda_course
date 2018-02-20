@@ -49,7 +49,7 @@
 /********************Forward Declarations ***********************/
 
 template<typename T, typename device_host_reduce_op>
-__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_op op);
+__global__ static void cuda_reduce(const T * vec, const size_t length, const size_t tile_dim, T * out, device_host_reduce_op op);
 
 template<typename T, typename device_host_reduce_op>
 static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op);
@@ -181,16 +181,17 @@ void your_sort(unsigned int* const d_inputVals,
 
 template<typename T, typename device_host_reduce_op>
 static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op)
-{	
-	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
+{
+	const size_t tile_size = 2;	
+	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block / (double)tile_size / 2.0));
 	if(num_blocks == 0) num_blocks = 1;
 
 	T * d_out = NULL;
 	checkCudaErrors(cudaMalloc(&d_out, sizeof(T) * num_blocks));
 
-	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, d_out, op);
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, tile_size, d_out, op);
 	checkCudaErrors(cudaGetLastError());		
-
+	
 	std::vector<T> h_out(num_blocks); 
 	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaFree(d_out));
@@ -200,17 +201,32 @@ static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_
 
 
 template<typename T, typename device_host_reduce_op>
-__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_op op)
+__device__ T reduce_tile(const T * vec, const size_t length, const size_t tile_dim, device_host_reduce_op op, const size_t start)
+{
+	const size_t stop = min(length - 1, start + tile_dim - 1);
+	
+	T e = vec[start];
+	for(size_t i = start + 1; i <= stop; ++i){
+		e = op(e, vec[i]);
+	}
+	return e;
+}
+
+template<typename T, typename device_host_reduce_op>
+__global__ static void cuda_reduce(const T * vec, const size_t length, const size_t tile_dim, T * out, device_host_reduce_op op)
 {
 	extern __shared__ T s_vect[];
 
 	const int tid = threadIdx.x;
-	const int position = blockIdx.x * blockDim.x + threadIdx.x;
-	
-	if(position > length) return;
+	const size_t start1 = (threadIdx.x + blockIdx.x * blockDim.x) * tile_dim * 2;
+	if(start1 > length) return;
 
 	//Copy into shared memory
-	s_vect[tid] = vec[position];
+	s_vect[tid] = reduce_tile(vec, length, tile_dim, op, start1);
+
+	const size_t start2 = (threadIdx.x + blockIdx.x * blockDim.x) * tile_dim * 2 + tile_dim;
+	if(start2 <= length - 1)
+		s_vect[tid] = op(s_vect[tid], reduce_tile(vec, length, tile_dim, op, start2));
 
 	__syncthreads();	
 
@@ -225,7 +241,7 @@ __global__ static void cuda_reduce(const T * vec, const size_t length, T * out, 
 
 	if(tid == 0)
 	{	
-		out[blockIdx.x] = s_vect[0];
+		atomicAdd(out, s_vect[0]);
 	}
 }
 
