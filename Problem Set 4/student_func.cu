@@ -140,7 +140,7 @@ void your_sort(unsigned int* const d_inputVals,
 	unsigned int * vals2 = d_outputVals;
 	unsigned int * pos2 = d_outputPos;
 
-	for(int i = 0; i < numbits; ++i)
+	for(int i = 0; i <= numbits; ++i)
 	{	unsigned int mask = pow(2, i);
 		auto mask_op_0 = [mask]__device__ (unsigned int el) -> type_scatter
 			  {
@@ -155,7 +155,7 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 
-		scan(scatter_loc1, numElems, (type_scatter)0, scan_op);
+		scan(scatter_loc1, numElems + 1, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 		
 		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
@@ -322,7 +322,7 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 
 	if(pos >= length_vec) return;
 
-	s_block_scan1[tid] = pos == 0 ? identity : d_in[pos -1];
+	s_block_scan1[tid] = pos == 0 ? identity : d_in[pos - 1];
 	__syncthreads();
 
 	for(int shift = 1; shift <= blockDim.x; shift *= 2)
