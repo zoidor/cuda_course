@@ -49,7 +49,7 @@
 /********************Forward Declarations ***********************/
 
 template<typename T, typename device_host_reduce_op>
-__global__ static void cuda_reduce(const T * vec, const size_t length, const size_t tile_dim, T * out, device_host_reduce_op op);
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_op op);
 
 template<typename T, typename device_host_reduce_op>
 static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op);
@@ -69,9 +69,6 @@ __global__ static void cuda_map2(const Tv * vals, T * out_true, T * out_false, s
 template<typename Tv, typename T>
 __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const T * flags_0, const Tv * in1, Tv * out1, const Tv * in2, Tv * out2, const size_t length);
 
-template<typename T>
-__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length);
-
 /* Public function */
 
 static void sort_thrust(unsigned int* const d_inputVals, 
@@ -84,7 +81,7 @@ static void sort_thrust(unsigned int* const d_inputVals,
 		checkCudaErrors(cudaMemcpy(d_outputPos, d_inputPos, sizeof(unsigned int) * numElems, cudaMemcpyDeviceToDevice));
 
 //Implementation from: https://code.google.com/archive/p/back40computing/wikis/RadixSorting.wiki
-//alternatively, one can take a look at the scan http://research.nvidia.com/sites/default/files/pubs/2016-03_Single-pass-Parallel-Prefix/nvr-2016-002.pdf
+		
 	thrust::device_ptr<unsigned int> p_Pos(d_outputPos);
 	thrust::device_ptr<unsigned int> p_Vals(d_outputVals);
 
@@ -158,7 +155,7 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 
-		gen_scatter1<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, numElems);
+		scan(scatter_loc1, numElems, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 		
 		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
@@ -181,17 +178,16 @@ void your_sort(unsigned int* const d_inputVals,
 
 template<typename T, typename device_host_reduce_op>
 static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_host_reduce_op op)
-{
-	const size_t tile_size = 2;	
-	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block / (double)tile_size / 2.0));
+{	
+	int num_blocks = static_cast<int>(ceil(length / (double)num_threads_per_block));
 	if(num_blocks == 0) num_blocks = 1;
 
 	T * d_out = NULL;
 	checkCudaErrors(cudaMalloc(&d_out, sizeof(T) * num_blocks));
 
-	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, tile_size, d_out, op);
+	cuda_reduce<<<num_blocks, num_threads_per_block, sizeof(T) * num_threads_per_block>>>(d_vec, length, d_out, op);
 	checkCudaErrors(cudaGetLastError());		
-	
+
 	std::vector<T> h_out(num_blocks); 
 	checkCudaErrors(cudaMemcpy(h_out.data(), d_out, num_blocks * sizeof(T), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaFree(d_out));
@@ -201,32 +197,17 @@ static T  reduce(const T * d_vec, int length, int num_threads_per_block, device_
 
 
 template<typename T, typename device_host_reduce_op>
-__device__ T reduce_tile(const T * vec, const size_t length, const size_t tile_dim, device_host_reduce_op op, const size_t start)
-{
-	const size_t stop = min(length - 1, start + tile_dim - 1);
-	
-	T e = vec[start];
-	for(size_t i = start + 1; i <= stop; ++i){
-		e = op(e, vec[i]);
-	}
-	return e;
-}
-
-template<typename T, typename device_host_reduce_op>
-__global__ static void cuda_reduce(const T * vec, const size_t length, const size_t tile_dim, T * out, device_host_reduce_op op)
+__global__ static void cuda_reduce(const T * vec, const size_t length, T * out, device_host_reduce_op op)
 {
 	extern __shared__ T s_vect[];
 
 	const int tid = threadIdx.x;
-	const size_t start1 = (threadIdx.x + blockIdx.x * blockDim.x) * tile_dim * 2;
-	if(start1 > length) return;
+	const int position = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	if(position > length) return;
 
 	//Copy into shared memory
-	s_vect[tid] = reduce_tile(vec, length, tile_dim, op, start1);
-
-	const size_t start2 = (threadIdx.x + blockIdx.x * blockDim.x) * tile_dim * 2 + tile_dim;
-	if(start2 <= length - 1)
-		s_vect[tid] = op(s_vect[tid], reduce_tile(vec, length, tile_dim, op, start2));
+	s_vect[tid] = vec[position];
 
 	__syncthreads();	
 
@@ -241,7 +222,7 @@ __global__ static void cuda_reduce(const T * vec, const size_t length, const siz
 
 	if(tid == 0)
 	{	
-		out[blockDim.x] =  s_vect[0];
+		out[blockIdx.x] = s_vect[0];
 	}
 }
 
@@ -335,6 +316,7 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 {
 	extern __shared__ T s_block_scan_mem[];
 	T * s_block_scan1 = s_block_scan_mem;
+	T * s_block_scan2 = s_block_scan_mem + blockDim.x;
 	const int tid = threadIdx.x;
 	const int pos = tid + blockDim.x * blockIdx.x;
 
@@ -343,20 +325,23 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 	s_block_scan1[tid] = pos == 0 ? identity : d_in[pos -1];
 	__syncthreads();
 
-	for(int shift = 1; shift < blockDim.x; shift *= 2)
+	for(int shift = 1; shift <= blockDim.x; shift *= 2)
 	{
 		const int prev = tid - shift;
-		T el = s_block_scan1[tid];
 		if(prev >= 0)
-			el = op(el, s_block_scan1[prev]);
+			s_block_scan2[tid] = op(s_block_scan1[tid], s_block_scan1[prev]);
+		else
+			s_block_scan2[tid] = s_block_scan1[tid];
+
 		__syncthreads();
-		 s_block_scan1[tid] = el;
-		__syncthreads();
+		T * tmp = s_block_scan1;
+		s_block_scan1 = s_block_scan2;
+		s_block_scan2 = tmp;
 	} 
 
 	d_out[pos] = s_block_scan1[tid];
 
-	if(tid == blockDim.x - 1) 
+	if(d_out_tails != NULL && tid == blockDim.x - 1) 
 	{
 		d_out_tails[blockIdx.x] =  s_block_scan1[tid];
 	}
@@ -384,32 +369,26 @@ static void scan(T * d_vec, const size_t length, T identity_element, operatorTyp
 {
 
 	static CudaBufferPool<T> pool(20);
-	const int K = 128;
+	const int K = 256;
 	const int K2 = 1024;
 	const int num_blocks = std::max(1, static_cast<int>(std::ceil(length / (double)K)));
 	const int num_blocks2 = std::max(1, static_cast<int>(std::ceil(length / (double)K2)));
 
 
 	CudaBuffer<T> d_out_vec_tails(pool.get(num_blocks));
-	CudaBuffer<T> d_out_vec(pool.get(length));
 	
-	cuda_scan_in_block<<<num_blocks, K, sizeof(T) * K>>>(d_vec, d_out_vec.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
+	cuda_scan_in_block<<<num_blocks, K, sizeof(T) * K * 2>>>(d_vec, d_vec, d_out_vec_tails.getDeviceBuffer(), length, op, identity_element);
 	checkCudaErrors(cudaGetLastError());
 
 	if(num_blocks != 1)
 	{
 		scan(d_out_vec_tails.getDeviceBuffer(), num_blocks, identity_element, op);
-		cuda_scan_post_process<<<num_blocks2, K2>>>(d_out_vec.getDeviceBuffer(), d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K);
-	}
-	else
-	{
-		checkCudaErrors(cudaMemcpy(d_vec, d_out_vec.getDeviceBuffer(), sizeof(T) * length, cudaMemcpyDeviceToDevice));
+		cuda_scan_post_process<<<num_blocks2, K2>>>(d_vec, d_out_vec_tails.getDeviceBuffer(), d_vec, length, op, K);
 	}
 
 	checkCudaErrors(cudaGetLastError());		
 
 	pool.add(std::move(d_out_vec_tails));
-	pool.add(std::move(d_out_vec));
 }
 
 
@@ -425,16 +404,6 @@ __global__ static void cuda_map2(const Tv * vals, T * out_true, T * out_false, s
 	out_false[pos] = !is_bit_active;
 }
 
-template<typename T>
-__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length){
-	
-	size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
-
-	if(pos >= length) return;
-
-	scatter1[pos] = pos - scatter0[pos] + scatter0[length + 1];
-	
-}
 
 template<typename Tv, typename T>
 __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const T * flags_0, const Tv * in1, Tv * out1, const Tv * in2, Tv * out2, const size_t length)
@@ -442,7 +411,7 @@ __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const 
 	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 	if(pos >= length) return;
 
-	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
+	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos] + scatter_0[length];
 	
 	if(scatter_pos >= length) return;
 
