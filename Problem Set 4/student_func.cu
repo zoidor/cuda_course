@@ -69,6 +69,9 @@ __global__ static void cuda_map2(const Tv * vals, T * out_true, T * out_false, s
 template<typename Tv, typename T>
 __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const T * flags_0, const Tv * in1, Tv * out1, const Tv * in2, Tv * out2, const size_t length);
 
+template<typename T>
+__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length);
+
 /* Public function */
 
 static void sort_thrust(unsigned int* const d_inputVals, 
@@ -155,10 +158,12 @@ void your_sort(unsigned int* const d_inputVals,
 		scan(scatter_loc0, numElems + 1, (type_scatter)0, scan_op);
 		checkCudaErrors(cudaGetLastError());		
 
-		scan(scatter_loc1, numElems + 1, (type_scatter)0, scan_op);
+		//scan(scatter_loc1, numElems + 1, (type_scatter)0, scan_op);
+		gen_scatter1<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, numElems);
 		checkCudaErrors(cudaGetLastError());		
 		
 		scatter2<<<num_blocks, K>>>(scatter_loc0, scatter_loc1, flags, vals1, vals2, pos1, pos2, numElems);
+		checkCudaErrors(cudaGetLastError());		
 
 		std::swap(vals1, vals2);
 		std::swap(pos1, pos2);
@@ -309,7 +314,15 @@ class CudaBufferPool
 		size_t m_max_els;
 };
 
+template<typename T>
+__global__ void gen_scatter1(const T * scatter0, T * scatter1, const T * flags, const size_t length){
+	
+	size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 
+	if(pos >= length) return;
+	//scatter0 is 1 element longer than length
+	scatter1[pos] = pos - scatter0[pos] + scatter0[length];	
+}
 
 template<typename T, typename device_scan_operator>
 __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_tails, const size_t length_vec, device_scan_operator op, T identity)
@@ -341,7 +354,7 @@ __global__ static void cuda_scan_in_block(const T * d_in, T * d_out, T * d_out_t
 
 	d_out[pos] = s_block_scan1[tid];
 
-	if(d_out_tails != NULL && tid == blockDim.x - 1) 
+	if(tid == blockDim.x - 1) //we do not care about the last tail, hence we do not need pos == length_vec - 1 
 	{
 		d_out_tails[blockIdx.x] =  s_block_scan1[tid];
 	}
@@ -411,7 +424,7 @@ __global__ static void scatter2(const T * scatter_0, const T * scatter_1, const 
 	const size_t pos = threadIdx.x + blockDim.x * blockIdx.x;
 	if(pos >= length) return;
 
-	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos] + scatter_0[length];
+	T scatter_pos = flags_0[pos] ? scatter_0[pos] : scatter_1[pos];
 	
 	if(scatter_pos >= length) return;
 
